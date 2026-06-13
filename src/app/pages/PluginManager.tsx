@@ -1,8 +1,8 @@
 import { Puzzle, CheckCircle, AlertCircle, Download } from "lucide-react";
-import { Card, CardHeader, CardContent } from "../components/ui/Card";
-import { Badge } from "../components/ui/Badge";
-import { Button } from "../components/ui/Button";
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "../components/ui/Table";
+import { Card, CardHeader, CardContent } from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "../components/ui/table";
 import { toast } from "sonner";
 
 interface Plugin {

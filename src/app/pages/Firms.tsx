@@ -2,13 +2,13 @@ import { useEffect, useState } from "react";
 import { Play } from "lucide-react";
 import { toast } from "sonner";
 
-import { Button } from "../components/ui/Button";
+import { Button } from "../components/ui/button";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-} from "../components/ui/Card";
+} from "../components/ui/card";
 import {
   Table,
   TableBody,
@@ -16,7 +16,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "../components/ui/Table";
+} from "../components/ui/table";
 import { listFirms, runScrape, type Firm } from "../lib/api";
 
 export function Firms() {

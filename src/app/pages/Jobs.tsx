@@ -2,9 +2,9 @@ import {useEffect, useMemo, useState} from "react";
 import {Download, X, ExternalLink} from "lucide-react";
 import {toast} from "sonner";
 
-import {Button} from "../components/ui/Button";
-import {Badge, type BadgeVariant} from "../components/ui/Badge";
-import {Card, CardContent} from "../components/ui/Card";
+import {Button} from "../components/ui/button";
+import {Badge, type BadgeVariant} from "../components/ui/badge";
+import {Card, CardContent} from "../components/ui/card";
 import {
     Dialog,
     DialogContent,
@@ -20,7 +20,7 @@ import {
     TableHead,
     TableHeader,
     TableRow,
-} from "../components/ui/Table";
+} from "../components/ui/table";
 import {exportJobs, getJob, listFirms, listJobs, type Firm, type Job} from "../lib/api";
 
 function toBadgeVariant(status: string | null | undefined): BadgeVariant {
