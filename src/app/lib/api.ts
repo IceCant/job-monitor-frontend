@@ -77,9 +77,9 @@ export type ScrapeRun = {
   id: number;
   firm_key: string | null;
   firm: string;
-  started_at: string;
-  finished_at: string;
-  status: "success" | "failed" | "partial";
+  started_at: string | null;
+  finished_at: string | null;
+  status: "success" | "failed" | "partial" | string | null;
   jobs_found: number;
   errors: number;
   error_message: string | null;
@@ -96,6 +96,12 @@ export type ScrapeRunList = {
 export type ScheduleSettings = {
   enabled: boolean;
   interval_hours: number;
+};
+
+export type ScrapeStart = {
+  accepted: boolean;
+  message: string;
+  firm_key: string | null;
 };
 
 let authToken: string | null = null;
@@ -150,7 +156,7 @@ export function listFirms() {
 }
 
 export function runScrape(firmKey?: string) {
-  return request<ScrapeRun>("/api/scraper/run", {
+  return request<ScrapeStart>("/api/scraper/run", {
     method: "POST",
     body: JSON.stringify({ firm_key: firmKey ?? null }),
   });
@@ -185,5 +191,4 @@ export function exportJobs(format: "csv" | "xlsx", filters: URLSearchParams) {
 
   return fetch(url, { headers });
 }
-
 

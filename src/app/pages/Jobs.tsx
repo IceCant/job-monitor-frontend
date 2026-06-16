@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useState} from "react";
-import {Download, X, ExternalLink} from "lucide-react";
+import {Download, X, ExternalLink, RotateCcw, Search} from "lucide-react";
 import {toast} from "sonner";
 
 import {Button} from "../components/ui/button";
@@ -21,6 +21,13 @@ import {
     TableHeader,
     TableRow,
 } from "../components/ui/table";
+import {
+    Pagination,
+    PaginationContent,
+    PaginationItem,
+    PaginationNext,
+    PaginationPrevious,
+} from "../components/ui/pagination";
 import {exportJobs, getJob, listFirms, listJobs, type Firm, type Job} from "../lib/api";
 
 function toBadgeVariant(status: string | null | undefined): BadgeVariant {
@@ -42,13 +49,17 @@ function toBadgeVariant(status: string | null | undefined): BadgeVariant {
     }
 }
 
+function formatDate(value: string | null | undefined) {
+    return value ? new Date(value).toLocaleString() : "-";
+}
+
 export function Jobs() {
     const [selectedJob, setSelectedJob] = useState<Job | null>(null);
     const [jobs, setJobs] = useState<Job[]>([]);
     const [firms, setFirms] = useState<Firm[]>([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
-    const [pageSize] = useState(20);
+    const [pageSize, setPageSize] = useState(20);
     const [search, setSearch] = useState("");
     const [status, setStatus] = useState("all");
     const [firm, setFirm] = useState("all");
@@ -62,6 +73,7 @@ export function Jobs() {
     const [exportChangedOnly, setExportChangedOnly] = useState(false);
 
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const hasFilters = Boolean(search) || status !== "all" || firm !== "all" || changedOnly;
 
     const params = useMemo(() => {
         const q = new URLSearchParams();
@@ -95,6 +107,14 @@ export function Jobs() {
         setExportFirm(firm);
         setExportChangedOnly(changedOnly);
         setExportOpen(true);
+    }
+
+    function clearFilters() {
+        setPage(1);
+        setSearch("");
+        setStatus("all");
+        setFirm("all");
+        setChangedOnly(false);
     }
 
     function buildExportParams() {
@@ -138,7 +158,7 @@ export function Jobs() {
     return (
 
         <div className="flex h-full">
-            <div className={`flex-1 p-6 ${selectedJob ? "mr-96" : ""} transition-all`}>
+            <div className={`min-w-0 flex-1 p-6 ${selectedJob ? "lg:mr-96" : ""} transition-all`}>
 
                 <div className="flex items-center justify-between mb-6">
                     <div>
@@ -152,18 +172,21 @@ export function Jobs() {
                     </div>
                 </div>
 
-                <Card>
+                <Card className="overflow-hidden">
                     <CardContent className="pt-6 space-y-3">
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                            <input
-                                className="border rounded-md px-3 py-2"
-                                placeholder="Search title, firm, location..."
-                                value={search}
-                                onChange={(e) => {
-                                    setPage(1);
-                                    setSearch(e.target.value);
-                                }}
-                            />
+                        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,1.4fr)_minmax(150px,0.7fr)_minmax(180px,0.9fr)_minmax(190px,0.8fr)_auto]">
+                            <div className="relative min-w-0">
+                                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                                <input
+                                    className="w-full rounded-md border py-2 pl-9 pr-3"
+                                    placeholder="Search title, firm, location..."
+                                    value={search}
+                                    onChange={(e) => {
+                                        setPage(1);
+                                        setSearch(e.target.value);
+                                    }}
+                                />
+                            </div>
                             <select
                                 className="border rounded-md px-3 py-2"
                                 value={status}
@@ -204,16 +227,20 @@ export function Jobs() {
                                 />
                                 Changed / review only
                             </label>
+                            <Button variant="outline" onClick={clearFilters} disabled={!hasFilters}>
+                                <RotateCcw className="w-4 h-4" />
+                                Clear
+                            </Button>
                         </div>
 
-                        <Table>
+                        <Table className="min-w-[920px] table-fixed">
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead>Firm</TableHead>
-                                    <TableHead>Title</TableHead>
-                                    <TableHead>Location</TableHead>
-                                    <TableHead>Status</TableHead>
-                                    <TableHead>Last Checked</TableHead>
+                                    <TableHead className="w-[18%]">Firm</TableHead>
+                                    <TableHead className="w-[37%]">Title</TableHead>
+                                    <TableHead className="w-[20%]">Location</TableHead>
+                                    <TableHead className="w-[12%]">Status</TableHead>
+                                    <TableHead className="w-[13%]">Last Seen</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -227,40 +254,88 @@ export function Jobs() {
                                     </TableRow>
                                 ) : (
                                     jobs.map((job) => (
-                                        <TableRow key={job.id} onClick={() => openJob(job)}>
-                                            <TableCell>{job.firm || "-"}</TableCell>
-                                            <TableCell>
+                                        <TableRow key={job.id} onClick={() => openJob(job)} className="cursor-pointer">
+                                            <TableCell className="max-w-0">
+                                                <div className="truncate" title={job.firm || "-"}>
+                                                    {job.firm || "-"}
+                                                </div>
+                                            </TableCell>
+                                            <TableCell className="max-w-0">
                                                 {job.job_url ? (
                                                     <a href={job.job_url} target="_blank" rel="noreferrer"
-                                                       className="text-blue-600 hover:underline">
+                                                       onClick={(event) => event.stopPropagation()}
+                                                       className="block truncate text-blue-600 hover:underline"
+                                                       title={job.title || "(Untitled)"}>
                                                         {job.title || "(Untitled)"}
                                                     </a>
                                                 ) : (
-                                                    job.title || "(Untitled)"
+                                                    <div className="truncate" title={job.title || "(Untitled)"}>
+                                                        {job.title || "(Untitled)"}
+                                                    </div>
                                                 )}
                                             </TableCell>
-                                            <TableCell>{job.location || "-"}</TableCell>
+                                            <TableCell className="max-w-0">
+                                                <div className="truncate" title={job.location || "-"}>
+                                                    {job.location || "-"}
+                                                </div>
+                                            </TableCell>
                                             <TableCell>
                                                 <Badge variant={toBadgeVariant(job.status)}>{job.status || "UNKNOWN"}</Badge>
                                             </TableCell>
-                                            <TableCell>{job.last_seen ? new Date(job.last_seen).toLocaleString() : "-"}</TableCell>
+                                            <TableCell className="text-xs text-gray-500">{formatDate(job.last_seen)}</TableCell>
                                         </TableRow>
                                     ))
                                 )}
                             </TableBody>
                         </Table>
 
-                        <div className="flex justify-between items-center">
-                            <span className="text-sm text-gray-500">Page {page} / {totalPages}</span>
-                            <div className="flex gap-2">
-                                <Button variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                                    Prev
-                                </Button>
-                                <Button variant="outline" disabled={page >= totalPages}
-                                        onClick={() => setPage((p) => p + 1)}>
-                                    Next
-                                </Button>
+                        <div className="flex flex-col gap-3 border-t pt-3 md:flex-row md:items-center md:justify-between">
+                            <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500">
+                                <span>Page {page} / {totalPages}</span>
+                                <span>{total} results</span>
+                                <label className="flex items-center gap-2 text-sm">
+                                    Rows
+                                    <select
+                                        className="rounded-md border px-2 py-1 text-sm text-gray-700"
+                                        value={pageSize}
+                                        onChange={(e) => {
+                                            setPage(1);
+                                            setPageSize(Number(e.target.value));
+                                        }}
+                                    >
+                                        <option value={10}>10</option>
+                                        <option value={20}>20</option>
+                                        <option value={50}>50</option>
+                                        <option value={100}>100</option>
+                                    </select>
+                                </label>
                             </div>
+                            <Pagination className="mx-0 w-auto justify-start md:justify-end">
+                                <PaginationContent>
+                                    <PaginationItem>
+                                        <PaginationPrevious
+                                            aria-disabled={page <= 1}
+                                            className={page <= 1 ? "pointer-events-none opacity-50" : ""}
+                                            onClick={(event) => {
+                                                event.preventDefault();
+                                                setPage((p) => Math.max(1, p - 1));
+                                            }}
+                                            href="#"
+                                        />
+                                    </PaginationItem>
+                                    <PaginationItem>
+                                        <PaginationNext
+                                            aria-disabled={page >= totalPages}
+                                            className={page >= totalPages ? "pointer-events-none opacity-50" : ""}
+                                            onClick={(event) => {
+                                                event.preventDefault();
+                                                setPage((p) => Math.min(totalPages, p + 1));
+                                            }}
+                                            href="#"
+                                        />
+                                    </PaginationItem>
+                                </PaginationContent>
+                            </Pagination>
                         </div>
                     </CardContent>
                 </Card>
@@ -308,17 +383,17 @@ export function Jobs() {
 
                             <div>
                                 <p className="text-sm font-medium text-gray-500">First Seen</p>
-                                <p className="text-gray-900 mt-1">{selectedJob.first_seen ? new Date(selectedJob.first_seen).toLocaleString() : "-"}</p>
+                                <p className="text-gray-900 mt-1">{formatDate(selectedJob.first_seen)}</p>
                             </div>
 
                             <div>
                                 <p className="text-sm font-medium text-gray-500">Last Seen Live</p>
-                                <p className="text-gray-900 mt-1">{selectedJob.last_seen ? new Date(selectedJob.last_seen).toLocaleString() : "-"}</p>
+                                <p className="text-gray-900 mt-1">{formatDate(selectedJob.last_seen)}</p>
                             </div>
 
                             <div>
                                 <p className="text-sm font-medium text-gray-500">Removed Date</p>
-                                <p className="text-gray-900 mt-1">{selectedJob.removed_at ? new Date(selectedJob.removed_at).toLocaleString() : "-"}</p>
+                                <p className="text-gray-900 mt-1">{formatDate(selectedJob.removed_at)}</p>
                             </div>
 
                             <div>
@@ -328,7 +403,7 @@ export function Jobs() {
 
                             <div>
                                 <p className="text-sm font-medium text-gray-500">Last Checked</p>
-                                <p className="text-gray-900 mt-1">{selectedJob.last_checked ? new Date(selectedJob.last_checked).toLocaleString() : "-"}</p>
+                                <p className="text-gray-900 mt-1">{formatDate(selectedJob.last_checked)}</p>
                             </div>
 
                             <div>
@@ -347,7 +422,7 @@ export function Jobs() {
 
                         <div>
                             <p className="text-sm font-medium text-gray-500">Full Description</p>
-                            <p className="text-gray-900 mt-1 whitespace-pre-wrap">{selectedJob.full_description || "-"}</p>
+                            <p className="text-gray-900 mt-1 max-h-96 overflow-y-auto whitespace-pre-wrap rounded-md border bg-gray-50 p-3 text-sm leading-6">{selectedJob.full_description || "-"}</p>
                         </div>
 
                         {selectedJob.change_history?.length > 0 && (

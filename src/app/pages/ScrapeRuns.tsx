@@ -1,61 +1,180 @@
 import { useEffect, useState } from "react";
+import { RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+
+import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "../components/ui/pagination";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { listScrapeRuns, type ScrapeRun } from "../lib/api";
+
+function formatDate(value: string | null | undefined) {
+  return value ? new Date(value).toLocaleString() : "-";
+}
 
 export function ScrapeRuns() {
   const [runs, setRuns] = useState<ScrapeRun[]>([]);
   const [selectedRun, setSelectedRun] = useState<ScrapeRun | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  async function loadRuns(showToast = false) {
+    setLoading(true);
+    try {
+      const response = await listScrapeRuns(page, pageSize);
+      setRuns(response.items);
+      setTotal(response.total);
+      if (showToast) toast.success("Scrape runs refreshed");
+    } catch {
+      if (showToast) toast.error("Failed to load scrape runs");
+      setRuns([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    listScrapeRuns().then((res) => setRuns(res.items)).catch(() => setRuns([]));
-  }, []);
+    loadRuns();
+    const timer = window.setInterval(() => loadRuns(), 15000);
+    return () => window.clearInterval(timer);
+  }, [page, pageSize]);
 
   return (
     <div className="p-6 space-y-4">
-      <Card>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-900">Scrape Runs</h1>
+          <p className="text-sm text-gray-500">Manual scrapes run in the background; completed runs refresh here.</p>
+        </div>
+        <Button variant="outline" onClick={() => loadRuns(true)} disabled={loading}>
+          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
+      </div>
+
+      <Card className="overflow-hidden">
         <CardHeader>
-          <CardTitle>Scrape Runs</CardTitle>
+          <CardTitle>Recent Runs</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
+          <Table className="min-w-[880px] table-fixed">
             <TableHeader>
               <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>Firm</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Started</TableHead>
-                <TableHead>Finished</TableHead>
-                <TableHead>Jobs</TableHead>
-                <TableHead>Errors</TableHead>
+                <TableHead className="w-[8%]">ID</TableHead>
+                <TableHead className="w-[28%]">Firm</TableHead>
+                <TableHead className="w-[12%]">Status</TableHead>
+                <TableHead className="w-[18%]">Started</TableHead>
+                <TableHead className="w-[18%]">Finished</TableHead>
+                <TableHead className="w-[8%]">Jobs</TableHead>
+                <TableHead className="w-[8%]">Errors</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {runs.map((run) => (
-                <TableRow key={run.id} onClick={() => setSelectedRun(run)}>
-                  <TableCell>{run.id}</TableCell>
-                  <TableCell>{run.firm}</TableCell>
-                  <TableCell>{run.status}</TableCell>
-                  <TableCell>{new Date(run.started_at).toLocaleString()}</TableCell>
-                  <TableCell>{new Date(run.finished_at).toLocaleString()}</TableCell>
-                  <TableCell>{run.jobs_found}</TableCell>
-                  <TableCell>{run.errors}</TableCell>
+              {loading && runs.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7}>Loading scrape runs...</TableCell>
                 </TableRow>
-              ))}
+              ) : runs.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7}>No scrape runs yet.</TableCell>
+                </TableRow>
+              ) : (
+                runs.map((run) => (
+                  <TableRow key={run.id} onClick={() => setSelectedRun(run)} className="cursor-pointer">
+                    <TableCell>#{run.id}</TableCell>
+                    <TableCell className="max-w-0">
+                      <div className="truncate" title={run.firm || "-"}>{run.firm || "-"}</div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={run.status === "failed" ? "failed" : run.status === "partial" ? "needs_review" : "live"}>
+                        {run.status || "unknown"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-gray-500">{formatDate(run.started_at)}</TableCell>
+                    <TableCell className="text-xs text-gray-500">{formatDate(run.finished_at)}</TableCell>
+                    <TableCell>{run.jobs_found}</TableCell>
+                    <TableCell className={run.errors > 0 ? "text-red-600" : ""}>{run.errors}</TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
+          <div className="mt-3 flex flex-col gap-3 border-t pt-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500">
+              <span>Page {page} / {totalPages}</span>
+              <span>{total} runs</span>
+              <label className="flex items-center gap-2 text-sm">
+                Rows
+                <select
+                  className="rounded-md border px-2 py-1 text-sm text-gray-700"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPage(1);
+                    setPageSize(Number(e.target.value));
+                  }}
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </label>
+            </div>
+            <Pagination className="mx-0 w-auto justify-start md:justify-end">
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    aria-disabled={page <= 1}
+                    className={page <= 1 ? "pointer-events-none opacity-50" : ""}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setPage((p) => Math.max(1, p - 1));
+                    }}
+                    href="#"
+                  />
+                </PaginationItem>
+                <PaginationItem>
+                  <PaginationNext
+                    aria-disabled={page >= totalPages}
+                    className={page >= totalPages ? "pointer-events-none opacity-50" : ""}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setPage((p) => Math.min(totalPages, p + 1));
+                    }}
+                    href="#"
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
         </CardContent>
       </Card>
 
       {selectedRun && (
-        <Card>
+        <Card className="overflow-hidden">
           <CardHeader>
             <CardTitle>Run #{selectedRun.id} Logs</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-1 font-mono text-xs bg-gray-900 text-gray-100 rounded-b-xl">
-            {(selectedRun.logs || []).map((log, idx) => (
-              <div key={idx}>{log}</div>
-            ))}
+          <CardContent className="max-h-80 space-y-1 overflow-auto rounded-b-xl bg-gray-900 p-4 font-mono text-xs text-gray-100">
+            {(selectedRun.logs || []).length > 0 ? (
+              selectedRun.logs.map((log, idx) => (
+                <div key={idx} className="whitespace-pre-wrap break-words">{log}</div>
+              ))
+            ) : (
+              <div>No logs captured for this run.</div>
+            )}
           </CardContent>
         </Card>
       )}

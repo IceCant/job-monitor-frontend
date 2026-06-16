@@ -19,8 +19,8 @@ export const router = createBrowserRouter([
         path: "/",
         Component: RootLayout,
         children: [
-          // { index: true, Component: Dashboard },
-          { index: true, path: "jobs", Component: Jobs },
+          { index: true, Component: Dashboard },
+          { path: "jobs", Component: Jobs },
           { path: "firms", Component: Firms },
           { path: "scrape-runs", Component: ScrapeRuns },
           { path: "plugin-manager", Component: PluginManager },

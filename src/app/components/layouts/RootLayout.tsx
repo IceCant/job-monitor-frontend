@@ -1,29 +1,51 @@
-import {Outlet, NavLink} from "react-router";
+import {Outlet, NavLink, useNavigate} from "react-router";
 import {
     LayoutDashboard,
+    AlertTriangle,
     Briefcase,
     Building2,
     Clock,
-    Puzzle,
     Settings as SettingsIcon,
     Bell,
-    Search,
+    CheckCircle2,
     Play,
     LogOut,
+    CalendarClock,
+    TrendingUp,
 } from "lucide-react";
-import {useState} from "react";
+import {useEffect, useState} from "react";
 import {toast} from "sonner";
 
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "../ui/alert-dialog";
+import {Button} from "../ui/button";
 import {useAuth} from "../../context/AuthContext";
-import {runScrape} from "../../lib/api";
+import {getDashboard, getSchedule, runScrape, type DashboardStats, type ScheduleSettings} from "../../lib/api";
+
+function formatDate(value: Date | null) {
+    return value ? value.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : "Not refreshed yet";
+}
 
 export function RootLayout() {
     const [showNotifications, setShowNotifications] = useState(false);
     const [running, setRunning] = useState(false);
+    const [logoutOpen, setLogoutOpen] = useState(false);
+    const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
+    const [schedule, setSchedule] = useState<ScheduleSettings | null>(null);
+    const [notificationsLoadedAt, setNotificationsLoadedAt] = useState<Date | null>(null);
     const {user, logout} = useAuth();
+    const navigate = useNavigate();
 
     const navItems = [
-        // { path: "/", label: "Dashboard", icon: LayoutDashboard },
+        {path: "/", label: "Dashboard", icon: LayoutDashboard},
         {path: "/jobs", label: "Jobs", icon: Briefcase},
         {path: "/firms", label: "Firms", icon: Building2},
         {path: "/scrape-runs", label: "Scrape Runs", icon: Clock},
@@ -31,13 +53,74 @@ export function RootLayout() {
         {path: "/settings", label: "Settings", icon: SettingsIcon},
     ];
 
+    const unreadNotifications = dashboardStats
+        ? dashboardStats.failed_sites + dashboardStats.new_jobs_today + dashboardStats.updated_jobs_today + dashboardStats.removed_jobs_today
+        : 0;
+
+    const notificationItems = dashboardStats
+        ? [
+            {
+                key: "failed",
+                icon: AlertTriangle,
+                title: dashboardStats.failed_sites > 0 ? `${dashboardStats.failed_sites} failed site${dashboardStats.failed_sites === 1 ? "" : "s"}` : "No failed sites",
+                body: dashboardStats.failed_sites > 0 ? "Check scrape runs for errors that need attention." : "Recent scraper health looks good.",
+                tone: dashboardStats.failed_sites > 0 ? "text-red-700 bg-red-50 border-red-200" : "text-emerald-700 bg-emerald-50 border-emerald-200",
+                action: "/scrape-runs",
+            },
+            {
+                key: "new",
+                icon: TrendingUp,
+                title: `${dashboardStats.new_jobs_today} new job${dashboardStats.new_jobs_today === 1 ? "" : "s"} today`,
+                body: `${dashboardStats.updated_jobs_today} updated, ${dashboardStats.removed_jobs_today} removed today.`,
+                tone: "text-blue-700 bg-blue-50 border-blue-200",
+                action: "/jobs",
+            },
+            {
+                key: "schedule",
+                icon: CalendarClock,
+                title: schedule?.enabled ? `Scheduled every ${schedule.interval_hours}h` : "Scheduled scraping is off",
+                body: schedule?.enabled ? "Automatic scraping is enabled." : "Turn it on from Settings when you want automatic checks.",
+                tone: schedule?.enabled ? "text-gray-700 bg-gray-50 border-gray-200" : "text-amber-700 bg-amber-50 border-amber-200",
+                action: "/settings",
+            },
+        ]
+        : [];
+
+    async function loadNotificationSummary() {
+        try {
+            const [dashboard, scheduleSettings] = await Promise.all([
+                getDashboard(),
+                getSchedule(),
+            ]);
+            setDashboardStats(dashboard);
+            setSchedule(scheduleSettings);
+            setNotificationsLoadedAt(new Date());
+        } catch {
+            setDashboardStats(null);
+            setSchedule(null);
+        }
+    }
+
+    useEffect(() => {
+        loadNotificationSummary();
+        const timer = window.setInterval(loadNotificationSummary, 60000);
+        return () => window.clearInterval(timer);
+    }, []);
+
     const handleRunAll = async () => {
         setRunning(true);
         try {
-            await runScrape();
-            toast.success("Scrape completed");
+            const response = await runScrape();
+            toast.success(response.message, {
+                description: "You can keep working while results are collected.",
+                action: {
+                    label: "View runs",
+                    onClick: () => navigate("/scrape-runs"),
+                },
+            });
+            loadNotificationSummary();
         } catch (error) {
-            toast.error("Scrape failed");
+            toast.error("Could not start scrape");
         } finally {
             setRunning(false);
         }
@@ -71,21 +154,22 @@ export function RootLayout() {
                 </nav>
 
                 <div className="p-4 border-t border-gray-200 space-y-2">
-                    <button
+                    <Button
                         onClick={handleRunAll}
                         disabled={running}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors font-medium"
+                        className="w-full"
                     >
                         <Play className="w-4 h-4"/>
-                        {running ? "Running..." : "Run All Sites"}
-                    </button>
-                    <button
-                        onClick={logout}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                        {running ? "Starting..." : "Run All Sites"}
+                    </Button>
+                    <Button
+                        variant="outline"
+                        onClick={() => setLogoutOpen(true)}
+                        className="w-full"
                     >
                         <LogOut className="w-4 h-4"/>
                         Logout
-                    </button>
+                    </Button>
                 </div>
             </aside>
 
@@ -96,12 +180,24 @@ export function RootLayout() {
                             <button
                                 onClick={() => setShowNotifications(!showNotifications)}
                                 className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                aria-label="Open notifications"
                             >
                                 <Bell className="w-5 h-5"/>
-                                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                                {unreadNotifications > 0 ? (
+                                    <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white">
+                                        {unreadNotifications > 9 ? "9+" : unreadNotifications}
+                                    </span>
+                                ) : (
+                                    <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-emerald-500"></span>
+                                )}
                             </button>
 
-                            <div className="text-sm text-gray-600">{user?.username}</div>
+                            <div className="flex items-center gap-2 rounded-md border px-3 py-1.5">
+                                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-medium text-white">
+                                    {(user?.username || "U").slice(0, 1).toUpperCase()}
+                                </div>
+                                <div className="text-sm text-gray-700">{user?.username}</div>
+                            </div>
                         </div>
                     </div>
                 </header>
@@ -113,18 +209,81 @@ export function RootLayout() {
 
             {showNotifications && (
                 <div
-                    className="fixed top-16 right-6 w-80 bg-white rounded-lg shadow-lg border border-gray-200 p-4 z-50">
-                    <h3 className="font-semibold text-gray-900 mb-3">Notifications</h3>
+                    className="fixed right-6 top-16 z-50 w-[360px] rounded-lg border border-gray-200 bg-white p-4 shadow-lg">
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                        <div>
+                            <h3 className="font-semibold text-gray-900">Notifications</h3>
+                            <p className="text-xs text-gray-500">Updated {formatDate(notificationsLoadedAt)}</p>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={loadNotificationSummary}>
+                            Refresh
+                        </Button>
+                    </div>
+
                     <div className="space-y-2">
-                        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                            <p className="text-sm text-gray-900">Use "Run All Sites" for manual scrape.</p>
-                        </div>
-                        <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                            <p className="text-sm text-gray-900">Schedule can be configured in Settings.</p>
-                        </div>
+                        {notificationItems.length > 0 ? (
+                            notificationItems.map((item) => (
+                                <button
+                                    key={item.key}
+                                    onClick={() => {
+                                        setShowNotifications(false);
+                                        navigate(item.action);
+                                    }}
+                                    className={`w-full rounded-md border p-3 text-left transition-colors hover:bg-white ${item.tone}`}
+                                >
+                                    <div className="flex items-start gap-3">
+                                        <item.icon className="mt-0.5 h-4 w-4 shrink-0" />
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-medium">{item.title}</p>
+                                            <p className="mt-1 text-xs opacity-80">{item.body}</p>
+                                        </div>
+                                    </div>
+                                </button>
+                            ))
+                        ) : (
+                            <div className="rounded-md border bg-gray-50 p-3 text-sm text-gray-600">
+                                <div className="flex items-center gap-2">
+                                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                                    Notification summary is unavailable.
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                    <div className="mt-3 border-t pt-3">
+                        <button
+                            onClick={() => {
+                                setShowNotifications(false);
+                                navigate("/scrape-runs");
+                            }}
+                            className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                        >
+                            View scrape history
+                        </button>
                     </div>
                 </div>
             )}
+
+            <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Log out?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            You will need to sign in again before viewing jobs, firms, and scrape history.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Stay signed in</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={() => {
+                                logout();
+                                navigate("/login");
+                            }}
+                        >
+                            Log out
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }
