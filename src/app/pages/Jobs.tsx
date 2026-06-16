@@ -1,56 +1,79 @@
 import {useEffect, useMemo, useState} from "react";
-import {Download, X, ExternalLink, RotateCcw, Search} from "lucide-react";
+import {Download, ExternalLink, RotateCcw, Search, X} from "lucide-react";
 import {toast} from "sonner";
-
-import {Button} from "../components/ui/button";
-import {Badge, type BadgeVariant} from "../components/ui/badge";
-import {Card, CardContent} from "../components/ui/card";
 import {
+    Box,
+    Button,
+    Card,
+    Checkbox,
+    Chip,
     Dialog,
+    DialogActions,
     DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
+    DialogContentText,
     DialogTitle,
-} from "../components/ui/dialog";
-import {
+    Divider,
+    Drawer,
+    FormControl,
+    FormControlLabel,
+    IconButton,
+    InputAdornment,
+    InputLabel,
+    Link,
+    MenuItem,
+    Paper,
+    Select,
+    Stack,
     Table,
     TableBody,
     TableCell,
+    TableContainer,
     TableHead,
-    TableHeader,
+    TablePagination,
     TableRow,
-} from "../components/ui/table";
-import {
-    Pagination,
-    PaginationContent,
-    PaginationItem,
-    PaginationNext,
-    PaginationPrevious,
-} from "../components/ui/pagination";
+    TextField,
+    Tooltip,
+    Typography,
+} from "@mui/material";
+
 import {exportJobs, getJob, listFirms, listJobs, type Firm, type Job} from "../lib/api";
 
-function toBadgeVariant(status: string | null | undefined): BadgeVariant {
-    switch ((status || "LIVE").toUpperCase()) {
-        case "NEW":
-            return "new";
-        case "UPDATED":
-            return "updated";
-        case "REMOVED":
-            return "removed";
-        case "REPOSTED":
-            return "reposted";
-        case "NEEDS_REVIEW":
-            return "needs_review";
-        case "FAILED":
-            return "failed";
-        default:
-            return "live";
-    }
-}
+const statusOptions = ["NEW", "LIVE", "UPDATED", "REPOSTED", "NEEDS_REVIEW", "REMOVED"];
 
 function formatDate(value: string | null | undefined) {
     return value ? new Date(value).toLocaleString() : "-";
+}
+
+function statusChipSx(status: string | null | undefined) {
+    switch ((status || "LIVE").toUpperCase()) {
+        case "NEW":
+            return {bgcolor: "#eff6ff", color: "#1d4ed8", borderColor: "#bfdbfe"};
+        case "UPDATED":
+            return {bgcolor: "#fef3c7", color: "#92400e", borderColor: "#fde68a"};
+        case "REMOVED":
+            return {bgcolor: "#fee2e2", color: "#991b1b", borderColor: "#fecaca"};
+        case "REPOSTED":
+            return {bgcolor: "#dcfce7", color: "#166534", borderColor: "#bbf7d0"};
+        case "NEEDS_REVIEW":
+            return {bgcolor: "#fff7ed", color: "#9a3412", borderColor: "#fed7aa"};
+        case "FAILED":
+            return {bgcolor: "#fee2e2", color: "#991b1b", borderColor: "#fecaca"};
+        default:
+            return {bgcolor: "#f1f5f9", color: "#334155", borderColor: "#e2e8f0"};
+    }
+}
+
+function DetailField({label, value}: { label: string; value: string | null | undefined }) {
+    return (
+        <Box>
+            <Typography variant="caption" color="text.secondary" sx={{fontWeight: 600}}>
+                {label}
+            </Typography>
+            <Typography variant="body2" color="text.primary" sx={{mt: 0.25, overflowWrap: "anywhere"}}>
+                {value || "-"}
+            </Typography>
+        </Box>
+    );
 }
 
 export function Jobs() {
@@ -72,7 +95,6 @@ export function Jobs() {
     const [exportFirm, setExportFirm] = useState("all");
     const [exportChangedOnly, setExportChangedOnly] = useState(false);
 
-    const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const hasFilters = Boolean(search) || status !== "all" || firm !== "all" || changedOnly;
 
     const params = useMemo(() => {
@@ -98,7 +120,7 @@ export function Jobs() {
                 setTotal(res.total);
             })
             .catch(() => toast.error("Failed to load jobs"))
-            .then(() => setLoading(false));
+            .finally(() => setLoading(false));
     }, [params]);
 
     function openExportModal() {
@@ -126,429 +148,406 @@ export function Jobs() {
         return q;
     }
 
-    function handleExport() {
-        exportJobs(exportFormat, buildExportParams())
-            .then((response) => {
-                if (!response.ok) {
-                    toast.error("Export failed");
-                    return;
-                }
-                return response.blob().then((blob) => {
-                    const url = window.URL.createObjectURL(blob);
-                    const link = document.createElement("a");
-                    link.href = url;
-                    link.download = exportFormat === "csv" ? "jobs.csv" : "jobs.xlsx";
-                    link.click();
-                    window.URL.revokeObjectURL(url);
-                    setExportOpen(false);
-                });
-            })
-            .catch(() => toast.error("Export failed"));
+    async function handleExport() {
+        try {
+            const response = await exportJobs(exportFormat, buildExportParams());
+            if (!response.ok) {
+                toast.error("Export failed");
+                return;
+            }
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = exportFormat === "csv" ? "jobs.csv" : "jobs.xlsx";
+            link.click();
+            window.URL.revokeObjectURL(url);
+            setExportOpen(false);
+        } catch {
+            toast.error("Export failed");
+        }
     }
 
     function openJob(job: Job) {
         setSelectedJob(job);
         getJob(job.id)
             .then(setSelectedJob)
-            .catch(() => {
-                toast.error("Failed to load full job details");
-            });
+            .catch(() => toast.error("Failed to load full job details"));
     }
 
     return (
+        <Box sx={{p: 3, minWidth: 0}}>
+            <Stack direction={{xs: "column", sm: "row"}} justifyContent="space-between" spacing={2} sx={{mb: 3}}>
+                <Box>
+                    <Typography variant="h5" sx={{fontWeight: 700}}>Jobs</Typography>
+                    <Typography variant="body2" color="text.secondary">{total} total results</Typography>
+                </Box>
+                <Button variant="outlined" startIcon={<Download size={16}/>} onClick={openExportModal}>
+                    Export
+                </Button>
+            </Stack>
 
-        <div className="flex h-full">
-            <div className={`min-w-0 flex-1 p-6 ${selectedJob ? "lg:mr-96" : ""} transition-all`}>
-
-                <div className="flex items-center justify-between mb-6">
-                    <div>
-                        <h1 className="text-2xl font-semibold">Jobs</h1>
-                        <p className="text-sm text-gray-500">{total} total results</p>
-                    </div>
-                    <div className="flex gap-2">
-                        <Button variant="outline" onClick={openExportModal}>
-                            <Download className="w-4 h-4"/> Export
-                        </Button>
-                    </div>
-                </div>
-
-                <Card className="overflow-hidden">
-                    <CardContent className="pt-6 space-y-3">
-                        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,1.4fr)_minmax(150px,0.7fr)_minmax(180px,0.9fr)_minmax(190px,0.8fr)_auto]">
-                            <div className="relative min-w-0">
-                                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                                <input
-                                    className="w-full rounded-md border py-2 pl-9 pr-3"
-                                    placeholder="Search title, firm, location..."
-                                    value={search}
-                                    onChange={(e) => {
-                                        setPage(1);
-                                        setSearch(e.target.value);
-                                    }}
-                                />
-                            </div>
-                            <select
-                                className="border rounded-md px-3 py-2"
+            <Card variant="outlined" sx={{borderRadius: 2, overflow: "hidden"}}>
+                <Box sx={{p: 2.5, borderBottom: 1, borderColor: "divider"}}>
+                    <Box
+                        sx={{
+                            display: "grid",
+                            gap: 1.5,
+                            gridTemplateColumns: {
+                                xs: "1fr",
+                                lg: "minmax(260px, 1.4fr) minmax(150px, .7fr) minmax(180px, .9fr) minmax(190px, .8fr) auto",
+                            },
+                            alignItems: "center",
+                        }}
+                    >
+                        <TextField
+                            size="small"
+                            placeholder="Search title, firm, location..."
+                            value={search}
+                            onChange={(event) => {
+                                setPage(1);
+                                setSearch(event.target.value);
+                            }}
+                            InputProps={{
+                                startAdornment: (
+                                    <InputAdornment position="start">
+                                        <Search size={17}/>
+                                    </InputAdornment>
+                                ),
+                            }}
+                        />
+                        <FormControl size="small">
+                            <InputLabel>Status</InputLabel>
+                            <Select
+                                label="Status"
                                 value={status}
-                                onChange={(e) => {
+                                onChange={(event) => {
                                     setPage(1);
-                                    setStatus(e.target.value);
+                                    setStatus(event.target.value);
                                 }}
                             >
-                                <option value="all">All statuses</option>
-                                <option value="NEW">NEW</option>
-                                <option value="LIVE">LIVE</option>
-                                <option value="UPDATED">UPDATED</option>
-                                <option value="REPOSTED">REPOSTED</option>
-                                <option value="NEEDS_REVIEW">NEEDS REVIEW</option>
-                                <option value="REMOVED">REMOVED</option>
-                            </select>
-                            <select
-                                className="border rounded-md px-3 py-2"
-                                value={firm}
-                                onChange={(e) => {
-                                    setPage(1);
-                                    setFirm(e.target.value);
-                                }}
-                            >
-                                <option value="all">All firms</option>
-                                {firms.map((f) => (
-                                    <option key={f.key} value={f.key}>{f.name}</option>
+                                <MenuItem value="all">All statuses</MenuItem>
+                                {statusOptions.map((item) => (
+                                    <MenuItem key={item} value={item}>{item.replace("_", " ")}</MenuItem>
                                 ))}
-                            </select>
-                            <label className="flex items-center gap-2 border rounded-md px-3 py-2 text-sm">
-                                <input
-                                    type="checkbox"
+                            </Select>
+                        </FormControl>
+                        <FormControl size="small">
+                            <InputLabel>Firm</InputLabel>
+                            <Select
+                                label="Firm"
+                                value={firm}
+                                onChange={(event) => {
+                                    setPage(1);
+                                    setFirm(event.target.value);
+                                }}
+                            >
+                                <MenuItem value="all">All firms</MenuItem>
+                                {firms.map((item) => (
+                                    <MenuItem key={item.key} value={item.key}>{item.name}</MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                        <FormControlLabel
+                            control={
+                                <Checkbox
                                     checked={changedOnly}
-                                    onChange={(e) => {
+                                    onChange={(event) => {
                                         setPage(1);
-                                        setChangedOnly(e.target.checked);
+                                        setChangedOnly(event.target.checked);
                                     }}
                                 />
-                                Changed / review only
-                            </label>
-                            <Button variant="outline" onClick={clearFilters} disabled={!hasFilters}>
-                                <RotateCcw className="w-4 h-4" />
-                                Clear
-                            </Button>
-                        </div>
+                            }
+                            label="Changed / review only"
+                            sx={{
+                                m: 0,
+                                minHeight: 40,
+                                border: 1,
+                                borderColor: "divider",
+                                borderRadius: 1,
+                                px: 1,
+                                ".MuiFormControlLabel-label": {fontSize: 14},
+                            }}
+                        />
+                        <Button variant="outlined" startIcon={<RotateCcw size={16}/>} disabled={!hasFilters} onClick={clearFilters}>
+                            Clear
+                        </Button>
+                    </Box>
+                </Box>
 
-                        <Table className="min-w-[920px] table-fixed">
-                            <TableHeader>
+                <TableContainer sx={{maxHeight: "calc(100vh - 300px)", minHeight: 360}}>
+                    <Table stickyHeader size="small" sx={{tableLayout: "fixed", minWidth: 980}}>
+                        <TableHead>
+                            <TableRow>
+                                <TableCell sx={{width: "18%", fontWeight: 700}}>Firm</TableCell>
+                                <TableCell sx={{width: "37%", fontWeight: 700}}>Title</TableCell>
+                                <TableCell sx={{width: "20%", fontWeight: 700}}>Location</TableCell>
+                                <TableCell sx={{width: "12%", fontWeight: 700}}>Status</TableCell>
+                                <TableCell sx={{width: "13%", fontWeight: 700}}>Last Seen</TableCell>
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            {loading ? (
                                 <TableRow>
-                                    <TableHead className="w-[18%]">Firm</TableHead>
-                                    <TableHead className="w-[37%]">Title</TableHead>
-                                    <TableHead className="w-[20%]">Location</TableHead>
-                                    <TableHead className="w-[12%]">Status</TableHead>
-                                    <TableHead className="w-[13%]">Last Seen</TableHead>
+                                    <TableCell colSpan={5}>Loading jobs...</TableCell>
                                 </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {loading ? (
-                                    <TableRow>
-                                        <TableCell colSpan={5}>Loading...</TableCell>
-                                    </TableRow>
-                                ) : jobs.length === 0 ? (
-                                    <TableRow>
-                                        <TableCell colSpan={5}>No jobs found.</TableCell>
-                                    </TableRow>
-                                ) : (
-                                    jobs.map((job) => (
-                                        <TableRow key={job.id} onClick={() => openJob(job)} className="cursor-pointer">
-                                            <TableCell className="max-w-0">
-                                                <div className="truncate" title={job.firm || "-"}>
-                                                    {job.firm || "-"}
-                                                </div>
-                                            </TableCell>
-                                            <TableCell className="max-w-0">
-                                                {job.job_url ? (
-                                                    <a href={job.job_url} target="_blank" rel="noreferrer"
-                                                       onClick={(event) => event.stopPropagation()}
-                                                       className="block truncate text-blue-600 hover:underline"
-                                                       title={job.title || "(Untitled)"}>
-                                                        {job.title || "(Untitled)"}
-                                                    </a>
-                                                ) : (
-                                                    <div className="truncate" title={job.title || "(Untitled)"}>
-                                                        {job.title || "(Untitled)"}
-                                                    </div>
-                                                )}
-                                            </TableCell>
-                                            <TableCell className="max-w-0">
-                                                <div className="truncate" title={job.location || "-"}>
-                                                    {job.location || "-"}
-                                                </div>
-                                            </TableCell>
-                                            <TableCell>
-                                                <Badge variant={toBadgeVariant(job.status)}>{job.status || "UNKNOWN"}</Badge>
-                                            </TableCell>
-                                            <TableCell className="text-xs text-gray-500">{formatDate(job.last_seen)}</TableCell>
-                                        </TableRow>
-                                    ))
-                                )}
-                            </TableBody>
-                        </Table>
-
-                        <div className="flex flex-col gap-3 border-t pt-3 md:flex-row md:items-center md:justify-between">
-                            <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500">
-                                <span>Page {page} / {totalPages}</span>
-                                <span>{total} results</span>
-                                <label className="flex items-center gap-2 text-sm">
-                                    Rows
-                                    <select
-                                        className="rounded-md border px-2 py-1 text-sm text-gray-700"
-                                        value={pageSize}
-                                        onChange={(e) => {
-                                            setPage(1);
-                                            setPageSize(Number(e.target.value));
-                                        }}
-                                    >
-                                        <option value={10}>10</option>
-                                        <option value={20}>20</option>
-                                        <option value={50}>50</option>
-                                        <option value={100}>100</option>
-                                    </select>
-                                </label>
-                            </div>
-                            <Pagination className="mx-0 w-auto justify-start md:justify-end">
-                                <PaginationContent>
-                                    <PaginationItem>
-                                        <PaginationPrevious
-                                            aria-disabled={page <= 1}
-                                            className={page <= 1 ? "pointer-events-none opacity-50" : ""}
-                                            onClick={(event) => {
-                                                event.preventDefault();
-                                                setPage((p) => Math.max(1, p - 1));
-                                            }}
-                                            href="#"
-                                        />
-                                    </PaginationItem>
-                                    <PaginationItem>
-                                        <PaginationNext
-                                            aria-disabled={page >= totalPages}
-                                            className={page >= totalPages ? "pointer-events-none opacity-50" : ""}
-                                            onClick={(event) => {
-                                                event.preventDefault();
-                                                setPage((p) => Math.min(totalPages, p + 1));
-                                            }}
-                                            href="#"
-                                        />
-                                    </PaginationItem>
-                                </PaginationContent>
-                            </Pagination>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-
-            {selectedJob && (
-                <div
-                    className="fixed right-0 top-0 h-full w-96 bg-white border-l border-gray-200 shadow-xl overflow-y-auto">
-                    <div
-                        className="sticky top-0 bg-white border-b border-gray-200 p-6 flex items-center justify-between">
-                        <h2 className="font-semibold text-gray-900">Job Details</h2>
-                        <button
-                            onClick={() => setSelectedJob(null)}
-                            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                        >
-                            <X className="w-5 h-5"/>
-                        </button>
-                    </div>
-
-                    <div className="p-6 space-y-6">
-                        <div>
-                            <Badge variant={toBadgeVariant(selectedJob.status)}>{selectedJob.status || "UNKNOWN"}</Badge>
-                        </div>
-
-                        <div>
-                            <h3 className="text-xl font-semibold text-gray-900">{selectedJob.title}</h3>
-                            <p className="text-gray-500 mt-1">{selectedJob.firm}</p>
-                        </div>
-
-                        <div className="space-y-4">
-                            <div>
-                                <p className="text-sm font-medium text-gray-500">Location</p>
-                                <p className="text-gray-900 mt-1">{selectedJob.location}</p>
-                            </div>
-
-                            <div>
-                                <p className="text-sm font-medium text-gray-500">Practice Area</p>
-                                <p className="text-gray-900 mt-1">{selectedJob.practice_area}</p>
-                            </div>
-
-                            <div>
-                                <p className="text-sm font-medium text-gray-500">PQE</p>
-                                <p className="text-gray-900 mt-1">{selectedJob.pqe_level}</p>
-                            </div>
-
-                            <div>
-                                <p className="text-sm font-medium text-gray-500">First Seen</p>
-                                <p className="text-gray-900 mt-1">{formatDate(selectedJob.first_seen)}</p>
-                            </div>
-
-                            <div>
-                                <p className="text-sm font-medium text-gray-500">Last Seen Live</p>
-                                <p className="text-gray-900 mt-1">{formatDate(selectedJob.last_seen)}</p>
-                            </div>
-
-                            <div>
-                                <p className="text-sm font-medium text-gray-500">Removed Date</p>
-                                <p className="text-gray-900 mt-1">{formatDate(selectedJob.removed_at)}</p>
-                            </div>
-
-                            <div>
-                                <p className="text-sm font-medium text-gray-500">Reference</p>
-                                <p className="text-gray-900 mt-1">{selectedJob.source_reference || "-"}</p>
-                            </div>
-
-                            <div>
-                                <p className="text-sm font-medium text-gray-500">Last Checked</p>
-                                <p className="text-gray-900 mt-1">{formatDate(selectedJob.last_checked)}</p>
-                            </div>
-
-                            <div>
-                                <p className="text-sm font-medium text-gray-500">Job URL</p>
-                                <a
-                                    href={selectedJob.job_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-blue-600 hover:text-blue-700 mt-1 inline-flex items-center gap-1"
+                            ) : jobs.length === 0 ? (
+                                <TableRow>
+                                    <TableCell colSpan={5}>No jobs found.</TableCell>
+                                </TableRow>
+                            ) : jobs.map((job) => (
+                                <TableRow
+                                    key={job.id}
+                                    hover
+                                    onClick={() => openJob(job)}
+                                    sx={{cursor: "pointer"}}
                                 >
-                                    View on careers site
-                                    <ExternalLink className="w-4 h-4"/>
-                                </a>
-                            </div>
-                        </div>
-
-                        <div>
-                            <p className="text-sm font-medium text-gray-500">Full Description</p>
-                            <p className="text-gray-900 mt-1 max-h-96 overflow-y-auto whitespace-pre-wrap rounded-md border bg-gray-50 p-3 text-sm leading-6">{selectedJob.full_description || "-"}</p>
-                        </div>
-
-                        {selectedJob.change_history?.length > 0 && (
-                            <div className="pt-6 border-t border-gray-200">
-                                <h4 className="font-medium text-gray-900 mb-4">Change History</h4>
-                                <div className="space-y-4">
-                                    {selectedJob.change_history.slice().reverse().map((entry, index) => (
-                                        <div key={`${entry.timestamp}-${index}`} className="rounded-lg border p-3">
-                                            <div className="flex items-center justify-between gap-3">
-                                                <Badge variant={toBadgeVariant(entry.event)}>{entry.event}</Badge>
-                                                <span className="text-xs text-gray-500">{new Date(entry.timestamp).toLocaleString()}</span>
-                                            </div>
-                                            {entry.message ? <p className="text-sm text-gray-700 mt-2">{entry.message}</p> : null}
-                                            {entry.changed_fields && Object.keys(entry.changed_fields).length > 0 ? (
-                                                <pre className="mt-2 text-xs bg-gray-50 rounded p-2 overflow-x-auto">{JSON.stringify(entry.changed_fields, null, 2)}</pre>
+                                    <TableCell>
+                                        <Tooltip title={job.firm || "-"} placement="top-start">
+                                            <Typography variant="body2" noWrap>{job.firm || "-"}</Typography>
+                                        </Tooltip>
+                                    </TableCell>
+                                    <TableCell>
+                                        <Stack direction="row" spacing={1} alignItems="center" sx={{minWidth: 0}}>
+                                            <Tooltip title={job.title || "(Untitled)"} placement="top-start">
+                                                <Typography variant="body2" noWrap sx={{fontWeight: 600, minWidth: 0}}>
+                                                    {job.title || "(Untitled)"}
+                                                </Typography>
+                                            </Tooltip>
+                                            {job.job_url ? (
+                                                <Tooltip title="Open careers site">
+                                                    <IconButton
+                                                        size="small"
+                                                        component="a"
+                                                        href={job.job_url}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        onClick={(event) => event.stopPropagation()}
+                                                    >
+                                                        <ExternalLink size={15}/>
+                                                    </IconButton>
+                                                </Tooltip>
                                             ) : null}
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
+                                        </Stack>
+                                    </TableCell>
+                                    <TableCell>
+                                        <Tooltip title={job.location || "-"} placement="top-start">
+                                            <Typography variant="body2" noWrap>{job.location || "-"}</Typography>
+                                        </Tooltip>
+                                    </TableCell>
+                                    <TableCell>
+                                        <Chip
+                                            size="small"
+                                            label={job.status || "UNKNOWN"}
+                                            variant="outlined"
+                                            sx={{fontWeight: 700, ...statusChipSx(job.status)}}
+                                        />
+                                    </TableCell>
+                                    <TableCell>
+                                        <Typography variant="caption" color="text.secondary" noWrap component="div">
+                                            {formatDate(job.last_seen)}
+                                        </Typography>
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </TableContainer>
 
-                        {selectedJob.extra_info && Object.keys(selectedJob.extra_info).length > 0 && (
-                            <div className="pt-6 border-t border-gray-200">
-                                <h4 className="font-medium text-gray-900 mb-4">Extra Information</h4>
-                                <div className="space-y-4">
-                                    {Object.keys(selectedJob.extra_info).map((key) => (
-                                        <div key={key}>
-                                            <p className="text-sm font-medium text-gray-500 capitalize">
-                                                {key.replace(/([A-Z])/g, ' $1').trim()}
-                                            </p>
-                                            <p className="text-gray-900 mt-1">{String(selectedJob.extra_info?.[key])}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
+                <TablePagination
+                    component="div"
+                    count={total}
+                    page={page - 1}
+                    rowsPerPage={pageSize}
+                    onPageChange={(_, nextPage) => setPage(nextPage + 1)}
+                    onRowsPerPageChange={(event) => {
+                        setPage(1);
+                        setPageSize(Number(event.target.value));
+                    }}
+                    rowsPerPageOptions={[10, 20, 50, 100]}
+                />
+            </Card>
 
-            <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+            <Drawer
+                anchor="right"
+                open={Boolean(selectedJob)}
+                onClose={() => setSelectedJob(null)}
+                PaperProps={{
+                    sx: {
+                        width: {xs: "100%", sm: 460, md: 520},
+                        maxWidth: "100%",
+                    },
+                }}
+            >
+                {selectedJob ? (
+                    <Box sx={{height: "100%", display: "flex", flexDirection: "column"}}>
+                        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{p: 2.5, borderBottom: 1, borderColor: "divider"}}>
+                            <Box>
+                                <Typography variant="h6" sx={{fontWeight: 700}}>Job Details</Typography>
+                                <Typography variant="caption" color="text.secondary">{selectedJob.firm || "Unknown firm"}</Typography>
+                            </Box>
+                            <IconButton onClick={() => setSelectedJob(null)} aria-label="Close job details">
+                                <X size={18}/>
+                            </IconButton>
+                        </Stack>
+
+                        <Box sx={{p: 2.5, overflowY: "auto"}}>
+                            <Stack spacing={2.5}>
+                                <Box>
+                                    <Chip
+                                        size="small"
+                                        label={selectedJob.status || "UNKNOWN"}
+                                        variant="outlined"
+                                        sx={{fontWeight: 700, mb: 1.5, ...statusChipSx(selectedJob.status)}}
+                                    />
+                                    <Typography variant="h6" sx={{fontWeight: 700, lineHeight: 1.25}}>
+                                        {selectedJob.title || "(Untitled)"}
+                                    </Typography>
+                                </Box>
+
+                                <Stack spacing={2}>
+                                    <DetailField label="Location" value={selectedJob.location}/>
+                                    <DetailField label="Practice Area" value={selectedJob.practice_area}/>
+                                    <DetailField label="PQE" value={selectedJob.pqe_level}/>
+                                    <DetailField label="First Seen" value={formatDate(selectedJob.first_seen)}/>
+                                    <DetailField label="Last Seen Live" value={formatDate(selectedJob.last_seen)}/>
+                                    <DetailField label="Removed Date" value={formatDate(selectedJob.removed_at)}/>
+                                    <DetailField label="Reference" value={selectedJob.source_reference}/>
+                                    <DetailField label="Last Checked" value={formatDate(selectedJob.last_checked)}/>
+                                </Stack>
+
+                                {selectedJob.job_url ? (
+                                    <Button
+                                        variant="outlined"
+                                        component="a"
+                                        href={selectedJob.job_url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        endIcon={<ExternalLink size={16}/>}
+                                    >
+                                        View on careers site
+                                    </Button>
+                                ) : null}
+
+                                <Divider/>
+
+                                <Box>
+                                    <Typography variant="subtitle2" sx={{fontWeight: 700, mb: 1}}>Full Description</Typography>
+                                    <Paper variant="outlined" sx={{p: 1.5, maxHeight: 320, overflow: "auto", bgcolor: "#f8fafc"}}>
+                                        <Typography variant="body2" sx={{whiteSpace: "pre-wrap", lineHeight: 1.65}}>
+                                            {selectedJob.full_description || "-"}
+                                        </Typography>
+                                    </Paper>
+                                </Box>
+
+                                {selectedJob.change_history?.length > 0 ? (
+                                    <Box>
+                                        <Typography variant="subtitle2" sx={{fontWeight: 700, mb: 1}}>Change History</Typography>
+                                        <Stack spacing={1}>
+                                            {selectedJob.change_history.slice().reverse().map((entry, index) => (
+                                                <Paper key={`${entry.timestamp}-${index}`} variant="outlined" sx={{p: 1.5}}>
+                                                    <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
+                                                        <Chip size="small" label={entry.event} variant="outlined" sx={{fontWeight: 700, ...statusChipSx(entry.event)}}/>
+                                                        <Typography variant="caption" color="text.secondary">{formatDate(entry.timestamp)}</Typography>
+                                                    </Stack>
+                                                    {entry.message ? (
+                                                        <Typography variant="body2" sx={{mt: 1}}>{entry.message}</Typography>
+                                                    ) : null}
+                                                    {entry.changed_fields && Object.keys(entry.changed_fields).length > 0 ? (
+                                                        <Box component="pre" sx={{mt: 1, p: 1, bgcolor: "#f8fafc", overflow: "auto", fontSize: 12, borderRadius: 1}}>
+                                                            {JSON.stringify(entry.changed_fields, null, 2)}
+                                                        </Box>
+                                                    ) : null}
+                                                </Paper>
+                                            ))}
+                                        </Stack>
+                                    </Box>
+                                ) : null}
+
+                                {selectedJob.extra_info && Object.keys(selectedJob.extra_info).length > 0 ? (
+                                    <Box>
+                                        <Typography variant="subtitle2" sx={{fontWeight: 700, mb: 1}}>Extra Information</Typography>
+                                        <Stack spacing={1.5}>
+                                            {Object.keys(selectedJob.extra_info).map((key) => (
+                                                <DetailField
+                                                    key={key}
+                                                    label={key.replace(/([A-Z])/g, " $1").trim()}
+                                                    value={String(selectedJob.extra_info?.[key])}
+                                                />
+                                            ))}
+                                        </Stack>
+                                    </Box>
+                                ) : null}
+                            </Stack>
+                        </Box>
+                    </Box>
+                ) : null}
+            </Drawer>
+
+            <Dialog open={exportOpen} onClose={() => setExportOpen(false)} fullWidth maxWidth="sm">
+                <DialogTitle>Export Jobs</DialogTitle>
                 <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Export Jobs</DialogTitle>
-                        <DialogDescription>
-                            Choose export format and filters.
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    <div className="space-y-3">
-                        <div>
-                            <label className="text-sm text-gray-600">Format</label>
-                            <select
-                                className="mt-1 w-full border rounded-md px-3 py-2"
+                    <DialogContentText sx={{mb: 2}}>
+                        Choose export format and filters.
+                    </DialogContentText>
+                    <Stack spacing={2}>
+                        <FormControl size="small" fullWidth>
+                            <InputLabel>Format</InputLabel>
+                            <Select
+                                label="Format"
                                 value={exportFormat}
-                                onChange={(e) => setExportFormat(e.target.value as "csv" | "xlsx")}
+                                onChange={(event) => setExportFormat(event.target.value as "csv" | "xlsx")}
                             >
-                                <option value="csv">CSV</option>
-                                <option value="xlsx">Excel (.xlsx)</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="text-sm text-gray-600">Search</label>
-                            <input
-                                className="mt-1 w-full border rounded-md px-3 py-2"
-                                placeholder="Title, firm, location..."
-                                value={exportSearch}
-                                onChange={(e) => setExportSearch(e.target.value)}
-                            />
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div>
-                                <label className="text-sm text-gray-600">Status</label>
-                                <select
-                                    className="mt-1 w-full border rounded-md px-3 py-2"
+                                <MenuItem value="csv">CSV</MenuItem>
+                                <MenuItem value="xlsx">Excel (.xlsx)</MenuItem>
+                            </Select>
+                        </FormControl>
+                        <TextField
+                            size="small"
+                            label="Search"
+                            placeholder="Title, firm, location..."
+                            value={exportSearch}
+                            onChange={(event) => setExportSearch(event.target.value)}
+                        />
+                        <Stack direction={{xs: "column", sm: "row"}} spacing={2}>
+                            <FormControl size="small" fullWidth>
+                                <InputLabel>Status</InputLabel>
+                                <Select
+                                    label="Status"
                                     value={exportStatus}
-                                    onChange={(e) => setExportStatus(e.target.value)}
+                                    onChange={(event) => setExportStatus(event.target.value)}
                                 >
-                                    <option value="all">All statuses</option>
-                                    <option value="NEW">NEW</option>
-                                    <option value="LIVE">LIVE</option>
-                                    <option value="UPDATED">UPDATED</option>
-                                    <option value="REPOSTED">REPOSTED</option>
-                                    <option value="NEEDS_REVIEW">NEEDS REVIEW</option>
-                                    <option value="REMOVED">REMOVED</option>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label className="text-sm text-gray-600">Firm</label>
-                                <select
-                                    className="mt-1 w-full border rounded-md px-3 py-2"
-                                    value={exportFirm}
-                                    onChange={(e) => setExportFirm(e.target.value)}
-                                >
-                                    <option value="all">All firms</option>
-                                    {firms.map((f) => (
-                                        <option key={f.key} value={f.key}>{f.name}</option>
+                                    <MenuItem value="all">All statuses</MenuItem>
+                                    {statusOptions.map((item) => (
+                                        <MenuItem key={item} value={item}>{item.replace("_", " ")}</MenuItem>
                                     ))}
-                                </select>
-                            </div>
-                        </div>
-
-                        <label className="flex items-center gap-2 text-sm">
-                            <input
-                                type="checkbox"
-                                checked={exportChangedOnly}
-                                onChange={(e) => setExportChangedOnly(e.target.checked)}
-                            />
-                            Changed / review only
-                        </label>
-                    </div>
-
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setExportOpen(false)}>
-                            Cancel
-                        </Button>
-                        <Button onClick={handleExport}>
-                            Download
-                        </Button>
-                    </DialogFooter>
+                                </Select>
+                            </FormControl>
+                            <FormControl size="small" fullWidth>
+                                <InputLabel>Firm</InputLabel>
+                                <Select
+                                    label="Firm"
+                                    value={exportFirm}
+                                    onChange={(event) => setExportFirm(event.target.value)}
+                                >
+                                    <MenuItem value="all">All firms</MenuItem>
+                                    {firms.map((item) => (
+                                        <MenuItem key={item.key} value={item.key}>{item.name}</MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                        </Stack>
+                        <FormControlLabel
+                            control={<Checkbox checked={exportChangedOnly} onChange={(event) => setExportChangedOnly(event.target.checked)}/>}
+                            label="Changed / review only"
+                        />
+                    </Stack>
                 </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setExportOpen(false)}>Cancel</Button>
+                    <Button variant="contained" onClick={handleExport}>Download</Button>
+                </DialogActions>
             </Dialog>
-        </div>
+        </Box>
     );
 }
