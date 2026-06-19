@@ -101,13 +101,58 @@ export type ScheduleSettings = {
 export type ScrapeStart = {
   accepted: boolean;
   message: string;
+  run_id: string | null;
   firm_key: string | null;
+};
+
+export type ScrapeProgress = {
+  run_id: string;
+  status: string;
+  label: string;
+  firm_key: string | null;
+  current_firm: string | null;
+  current_firm_percent: number;
+  current_firm_stage: string | null;
+  total_firms: number;
+  completed_firms: number;
+  percent: number;
+  jobs_found: number;
+  errors: number;
+  message: string | null;
+  logs: string[];
+  started_at: string;
+  updated_at: string;
+  finished_at: string | null;
+};
+
+export type PluginInfo = {
+  key: string;
+  name: string;
+  class_name: string;
+  enabled: boolean;
+  careers_url: string | null;
+  description: string;
+  required_config: string[];
+  default_config: Record<string, unknown>;
+};
+
+export type PluginTestResult = {
+  plugin_key: string;
+  firm_name: string;
+  count: number;
+  elapsed_ms: number;
+  items: Array<Record<string, unknown>>;
+  raw_json: string;
 };
 
 let authToken: string | null = null;
 
 export function setAuthToken(token: string | null) {
   authToken = token;
+}
+
+export function getAuthToken() {
+  return authToken;
 }
 
 function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -162,6 +207,120 @@ export function runScrape(firmKey?: string) {
   });
 }
 
+export function getScrapeProgress(runId: string) {
+  return request<ScrapeProgress>(`/api/scraper/progress/${runId}`);
+}
+
+export function subscribeScrapeProgress(
+  runId: string,
+  onProgress: (progress: ScrapeProgress) => void,
+  onError?: (error: unknown) => void,
+) {
+  const controller = new AbortController();
+  let closed = false;
+  let fallbackTimer: number | null = null;
+
+  function close() {
+    closed = true;
+    controller.abort();
+    if (fallbackTimer !== null) {
+      window.clearInterval(fallbackTimer);
+      fallbackTimer = null;
+    }
+  }
+
+  function startFallback() {
+    if (closed || fallbackTimer !== null) return;
+
+    const load = async () => {
+      try {
+        const progress = await getScrapeProgress(runId);
+        if (closed) return;
+        onProgress(progress);
+        if (["success", "failed", "partial"].includes(progress.status)) {
+          close();
+        }
+      } catch (error) {
+        onError?.(error);
+        close();
+      }
+    };
+
+    load();
+    fallbackTimer = window.setInterval(load, 5000);
+  }
+
+  async function stream() {
+    try {
+      const headers = new Headers();
+      if (authToken) {
+        headers.set("Authorization", `Bearer ${authToken}`);
+      }
+
+      const response = await fetch(`${API_BASE}/api/scraper/progress/${runId}/stream`, {
+        headers,
+        signal: controller.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error(`Progress stream failed (${response.status})`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (!closed) {
+        const {done, value} = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, {stream: true});
+        const events = buffer.split("\n\n");
+        buffer = events.pop() || "";
+
+        for (const event of events) {
+          const data = event
+            .split("\n")
+            .filter((line) => line.startsWith("data:"))
+            .map((line) => line.slice(5).trimStart())
+            .join("\n");
+          if (!data) continue;
+
+          const progress = JSON.parse(data) as ScrapeProgress;
+          onProgress(progress);
+          if (["success", "failed", "partial"].includes(progress.status)) {
+            close();
+            return;
+          }
+        }
+      }
+    } catch (error) {
+      if (closed) return;
+      onError?.(error);
+      startFallback();
+    }
+  }
+
+  stream();
+  return close;
+}
+
+export function listPlugins() {
+  return request<PluginInfo[]>("/api/scraper/plugins");
+}
+
+export function testPlugin(payload: {
+  plugin_key: string;
+  config: Record<string, unknown>;
+  firm_name?: string | null;
+  limit: number;
+}) {
+  return request<PluginTestResult>("/api/scraper/dev/test-plugin", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export const getJob = (jobId: number) => request<Job>(`/api/jobs/${jobId}`);
 
 export function listScrapeRuns(page = 1, pageSize = 20) {
@@ -191,4 +350,3 @@ export function exportJobs(format: "csv" | "xlsx", filters: URLSearchParams) {
 
   return fetch(url, { headers });
 }
-

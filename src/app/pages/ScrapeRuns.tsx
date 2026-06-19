@@ -14,10 +14,7 @@ import {
 } from "../components/ui/pagination";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { listScrapeRuns, type ScrapeRun } from "../lib/api";
-
-function formatDate(value: string | null | undefined) {
-  return value ? new Date(value).toLocaleString() : "-";
-}
+import { formatApiDateTime } from "../lib/dates";
 
 export function ScrapeRuns() {
   const [runs, setRuns] = useState<ScrapeRun[]>([]);
@@ -52,7 +49,7 @@ export function ScrapeRuns() {
   }, [page, pageSize]);
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4 p-3 md:p-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">Scrape Runs</h1>
@@ -69,7 +66,39 @@ export function ScrapeRuns() {
           <CardTitle>Recent Runs</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table className="min-w-[880px] table-fixed">
+          <div className="space-y-3 md:hidden">
+            {loading && runs.length === 0 ? (
+              <div className="text-sm text-gray-500">Loading scrape runs...</div>
+            ) : runs.length === 0 ? (
+              <div className="text-sm text-gray-500">No scrape runs yet.</div>
+            ) : (
+              runs.map((run) => (
+                <button
+                  key={run.id}
+                  onClick={() => setSelectedRun(run)}
+                  className="w-full rounded-md border p-3 text-left"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-medium text-gray-900">Run #{run.id}</div>
+                      <div className="truncate text-sm text-gray-500" title={run.firm || "-"}>{run.firm || "-"}</div>
+                    </div>
+                    <Badge variant={run.status === "failed" ? "failed" : run.status === "partial" ? "needs_review" : "live"}>
+                      {run.status || "unknown"}
+                    </Badge>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-500">
+                    <div>Started: {formatApiDateTime(run.started_at)}</div>
+                    <div>Finished: {formatApiDateTime(run.finished_at)}</div>
+                    <div>{run.jobs_found} jobs</div>
+                    <div className={run.errors > 0 ? "text-red-600" : ""}>{run.errors} errors</div>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+
+          <Table className="hidden min-w-[880px] table-fixed md:table">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[8%]">ID</TableHead>
@@ -102,8 +131,8 @@ export function ScrapeRuns() {
                         {run.status || "unknown"}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-xs text-gray-500">{formatDate(run.started_at)}</TableCell>
-                    <TableCell className="text-xs text-gray-500">{formatDate(run.finished_at)}</TableCell>
+                    <TableCell className="text-xs text-gray-500">{formatApiDateTime(run.started_at)}</TableCell>
+                    <TableCell className="text-xs text-gray-500">{formatApiDateTime(run.finished_at)}</TableCell>
                     <TableCell>{run.jobs_found}</TableCell>
                     <TableCell className={run.errors > 0 ? "text-red-600" : ""}>{run.errors}</TableCell>
                   </TableRow>

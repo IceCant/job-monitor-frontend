@@ -12,6 +12,7 @@ import {
     LogOut,
     CalendarClock,
     TrendingUp,
+    Bug,
 } from "lucide-react";
 import {useEffect, useState} from "react";
 import {toast} from "sonner";
@@ -27,8 +28,23 @@ import {
     AlertDialogTitle,
 } from "../ui/alert-dialog";
 import {Button} from "../ui/button";
+import {Progress} from "../ui/progress";
 import {useAuth} from "../../context/AuthContext";
-import {getDashboard, getSchedule, runScrape, type DashboardStats, type ScheduleSettings} from "../../lib/api";
+import {
+    getDashboard,
+    getSchedule,
+    runScrape,
+    subscribeScrapeProgress,
+    type DashboardStats,
+    type ScheduleSettings,
+    type ScrapeProgress,
+} from "../../lib/api";
+import {
+    clearActiveScrapeRunId,
+    getActiveScrapeRunId,
+    listenForActiveScrapeRunChange,
+    saveActiveScrapeRunId,
+} from "../../lib/activeScrapeRun";
 
 function formatDate(value: Date | null) {
     return value ? value.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : "Not refreshed yet";
@@ -37,6 +53,8 @@ function formatDate(value: Date | null) {
 export function RootLayout() {
     const [showNotifications, setShowNotifications] = useState(false);
     const [running, setRunning] = useState(false);
+    const [activeRunId, setActiveRunId] = useState<string | null>(null);
+    const [scrapeProgress, setScrapeProgress] = useState<ScrapeProgress | null>(null);
     const [logoutOpen, setLogoutOpen] = useState(false);
     const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
     const [schedule, setSchedule] = useState<ScheduleSettings | null>(null);
@@ -49,13 +67,12 @@ export function RootLayout() {
         {path: "/jobs", label: "Jobs", icon: Briefcase},
         {path: "/firms", label: "Firms", icon: Building2},
         {path: "/scrape-runs", label: "Scrape Runs", icon: Clock},
+        ...(import.meta.env.DEV ? [{path: "/dev/plugin-tester", label: "Plugin Test", icon: Bug}] : []),
         // {path: "/plugin-manager", label: "Plugin Manager", icon: Puzzle},
         {path: "/settings", label: "Settings", icon: SettingsIcon},
     ];
 
-    const unreadNotifications = dashboardStats
-        ? dashboardStats.failed_sites + dashboardStats.new_jobs_today + dashboardStats.updated_jobs_today + dashboardStats.removed_jobs_today
-        : 0;
+    const urgentNotifications = dashboardStats?.failed_sites ?? 0;
 
     const notificationItems = dashboardStats
         ? [
@@ -107,10 +124,59 @@ export function RootLayout() {
         return () => window.clearInterval(timer);
     }, []);
 
+    useEffect(() => {
+        function restoreActiveRun() {
+            const storedRunId = getActiveScrapeRunId();
+            setActiveRunId(storedRunId);
+            if (storedRunId) setRunning(true);
+        }
+
+        restoreActiveRun();
+        return listenForActiveScrapeRunChange(restoreActiveRun);
+    }, []);
+
+    useEffect(() => {
+        if (!activeRunId) return;
+
+        let cancelled = false;
+        const unsubscribe = subscribeScrapeProgress(
+            activeRunId,
+            (progress) => {
+                if (cancelled) return;
+                setScrapeProgress(progress);
+                const done = ["success", "failed", "partial"].includes(progress.status);
+                setRunning(!done);
+                if (done) {
+                    clearActiveScrapeRunId(activeRunId);
+                    setActiveRunId(null);
+                    loadNotificationSummary();
+                }
+            },
+            () => {
+                if (!cancelled) {
+                    clearActiveScrapeRunId(activeRunId);
+                    setRunning(false);
+                    setActiveRunId(null);
+                }
+            },
+        );
+        return () => {
+            cancelled = true;
+            unsubscribe();
+        };
+    }, [activeRunId]);
+
     const handleRunAll = async () => {
         setRunning(true);
         try {
             const response = await runScrape();
+            if (response.run_id) {
+                saveActiveScrapeRunId(response.run_id);
+                setActiveRunId(response.run_id);
+                setScrapeProgress(null);
+            } else {
+                setRunning(false);
+            }
             toast.success(response.message, {
                 description: "You can keep working while results are collected.",
                 action: {
@@ -121,14 +187,13 @@ export function RootLayout() {
             loadNotificationSummary();
         } catch (error) {
             toast.error("Could not start scrape");
-        } finally {
             setRunning(false);
         }
     };
 
     return (
         <div className="flex h-screen bg-gray-50">
-            <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
+            <aside className="hidden w-64 bg-white border-r border-gray-200 md:flex md:flex-col">
                 <div className="p-6 border-b border-gray-200">
                     <h1 className="text-xl font-semibold text-gray-900">Job Monitor</h1>
                 </div>
@@ -162,6 +227,37 @@ export function RootLayout() {
                         <Play className="w-4 h-4"/>
                         {running ? "Starting..." : "Run All Sites"}
                     </Button>
+                    {scrapeProgress ? (
+                        <div className="rounded-md border bg-gray-50 p-3">
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                    <p className="truncate text-sm font-medium text-gray-900">{scrapeProgress.label}</p>
+                                    <p className="truncate text-xs text-gray-500">
+                                        {scrapeProgress.current_firm || scrapeProgress.message || scrapeProgress.status}
+                                    </p>
+                                </div>
+                                <span className="text-sm font-semibold text-gray-700">{scrapeProgress.percent}%</span>
+                            </div>
+                            <Progress value={scrapeProgress.percent} className="h-2" />
+                            {scrapeProgress.current_firm ? (
+                                <div className="mt-3 rounded-md bg-white p-2">
+                                    <div className="mb-1 flex items-center justify-between gap-2">
+                                        <p className="truncate text-xs font-medium text-gray-700">
+                                            {scrapeProgress.current_firm}
+                                            {scrapeProgress.current_firm_stage ? ` · ${scrapeProgress.current_firm_stage}` : ""}
+                                        </p>
+                                        <span className="text-xs font-semibold text-gray-600">{scrapeProgress.current_firm_percent}%</span>
+                                    </div>
+                                    <Progress value={scrapeProgress.current_firm_percent} className="h-1.5" />
+                                </div>
+                            ) : null}
+                            <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-gray-500">
+                                <span>{scrapeProgress.completed_firms}/{scrapeProgress.total_firms || 1} firms</span>
+                                <span>{scrapeProgress.jobs_found} jobs</span>
+                                <span className={scrapeProgress.errors ? "text-red-600" : ""}>{scrapeProgress.errors} errors</span>
+                            </div>
+                        </div>
+                    ) : null}
                     <Button
                         variant="outline"
                         onClick={() => setLogoutOpen(true)}
@@ -174,42 +270,64 @@ export function RootLayout() {
             </aside>
 
             <div className="flex-1 flex flex-col overflow-hidden">
-                <header className="bg-white border-b border-gray-200 px-6 py-4">
-                    <div className="flex items-end justify-between">
-                        <div className="flex items-center justify-end gap-4 flex-1 ml-6">
+                <header className="bg-white border-b border-gray-200 px-4 py-3 md:px-6 md:py-4">
+                    <div className="flex items-center justify-between">
+                        <div className="md:hidden">
+                            <h1 className="text-base font-semibold text-gray-900">Job Monitor</h1>
+                        </div>
+                        <div className="flex items-center justify-end gap-3 md:gap-4 flex-1 md:ml-6">
                             <button
                                 onClick={() => setShowNotifications(!showNotifications)}
                                 className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                                 aria-label="Open notifications"
                             >
                                 <Bell className="w-5 h-5"/>
-                                {unreadNotifications > 0 ? (
+                                {urgentNotifications > 0 ? (
                                     <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white">
-                                        {unreadNotifications > 9 ? "9+" : unreadNotifications}
+                                        {urgentNotifications > 9 ? "9+" : urgentNotifications}
                                     </span>
-                                ) : (
-                                    <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-emerald-500"></span>
-                                )}
+                                ) : null}
                             </button>
 
-                            <div className="flex items-center gap-2 rounded-md border px-3 py-1.5">
+                            <div className="flex items-center gap-2 rounded-md border px-2 py-1.5 md:px-3">
                                 <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-medium text-white">
                                     {(user?.username || "U").slice(0, 1).toUpperCase()}
                                 </div>
-                                <div className="text-sm text-gray-700">{user?.username}</div>
+                                <div className="hidden text-sm text-gray-700 sm:block">{user?.username}</div>
                             </div>
                         </div>
                     </div>
                 </header>
 
-                <main className="flex-1 overflow-auto">
+                <main className="flex-1 overflow-auto pb-20 md:pb-0">
                     <Outlet/>
                 </main>
             </div>
 
+            <nav
+                className="fixed bottom-0 left-0 right-0 z-40 grid border-t border-gray-200 bg-white md:hidden"
+                style={{gridTemplateColumns: `repeat(${navItems.length}, minmax(0, 1fr))`}}
+            >
+                {navItems.map((item) => (
+                    <NavLink
+                        key={item.path}
+                        to={item.path}
+                        end={item.path === "/"}
+                        className={({isActive}) =>
+                            `flex flex-col items-center gap-1 px-1 py-2 text-[11px] ${
+                                isActive ? "text-blue-600" : "text-gray-600"
+                            }`
+                        }
+                    >
+                        <item.icon className="h-5 w-5"/>
+                        <span className="max-w-full truncate">{item.label.replace("Scrape Runs", "Runs")}</span>
+                    </NavLink>
+                ))}
+            </nav>
+
             {showNotifications && (
                 <div
-                    className="fixed right-6 top-16 z-50 w-[360px] rounded-lg border border-gray-200 bg-white p-4 shadow-lg">
+                    className="fixed left-3 right-3 top-16 z-50 rounded-lg border border-gray-200 bg-white p-4 shadow-lg md:left-auto md:right-6 md:w-[360px]">
                     <div className="mb-3 flex items-start justify-between gap-3">
                         <div>
                             <h3 className="font-semibold text-gray-900">Notifications</h3>

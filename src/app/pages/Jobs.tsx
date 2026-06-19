@@ -19,7 +19,6 @@ import {
     IconButton,
     InputAdornment,
     InputLabel,
-    Link,
     MenuItem,
     Paper,
     Select,
@@ -37,12 +36,9 @@ import {
 } from "@mui/material";
 
 import {exportJobs, getJob, listFirms, listJobs, type Firm, type Job} from "../lib/api";
+import {formatApiDateTime} from "../lib/dates";
 
 const statusOptions = ["NEW", "LIVE", "UPDATED", "REPOSTED", "NEEDS_REVIEW", "REMOVED"];
-
-function formatDate(value: string | null | undefined) {
-    return value ? new Date(value).toLocaleString() : "-";
-}
 
 function statusChipSx(status: string | null | undefined) {
     switch ((status || "LIVE").toUpperCase()) {
@@ -176,7 +172,7 @@ export function Jobs() {
     }
 
     return (
-        <Box sx={{p: 3, minWidth: 0}}>
+        <Box sx={{p: {xs: 1.5, md: 3}, minWidth: 0}}>
             <Stack direction={{xs: "column", sm: "row"}} justifyContent="space-between" spacing={2} sx={{mb: 3}}>
                 <Box>
                     <Typography variant="h5" sx={{fontWeight: 700}}>Jobs</Typography>
@@ -275,7 +271,65 @@ export function Jobs() {
                     </Box>
                 </Box>
 
-                <TableContainer sx={{maxHeight: "calc(100vh - 300px)", minHeight: 360}}>
+                <Box sx={{display: {xs: "block", md: "none"}, p: 1.5}}>
+                    {loading ? (
+                        <Typography variant="body2" color="text.secondary">Loading jobs...</Typography>
+                    ) : jobs.length === 0 ? (
+                        <Typography variant="body2" color="text.secondary">No jobs found.</Typography>
+                    ) : (
+                        <Stack spacing={1.25}>
+                            {jobs.map((job) => (
+                                <Paper
+                                    key={job.id}
+                                    variant="outlined"
+                                    onClick={() => openJob(job)}
+                                    sx={{p: 1.5, borderRadius: 2, cursor: "pointer"}}
+                                >
+                                    <Stack spacing={1}>
+                                        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                                            <Box sx={{minWidth: 0}}>
+                                                <Typography variant="subtitle2" sx={{fontWeight: 700, lineHeight: 1.25}}>
+                                                    {job.title || "(Untitled)"}
+                                                </Typography>
+                                                <Typography variant="caption" color="text.secondary" noWrap component="div">
+                                                    {job.firm || "-"}
+                                                </Typography>
+                                            </Box>
+                                            <Chip
+                                                size="small"
+                                                label={job.status || "UNKNOWN"}
+                                                variant="outlined"
+                                                sx={{fontWeight: 700, flexShrink: 0, ...statusChipSx(job.status)}}
+                                            />
+                                        </Stack>
+                                        <Typography variant="body2" color="text.secondary">
+                                            {job.location || "-"}
+                                        </Typography>
+                                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                                            <Typography variant="caption" color="text.secondary">
+                                                Last seen {formatApiDateTime(job.last_seen)}
+                                            </Typography>
+                                            {job.job_url ? (
+                                                <IconButton
+                                                    size="small"
+                                                    component="a"
+                                                    href={job.job_url}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    onClick={(event) => event.stopPropagation()}
+                                                >
+                                                    <ExternalLink size={15}/>
+                                                </IconButton>
+                                            ) : null}
+                                        </Stack>
+                                    </Stack>
+                                </Paper>
+                            ))}
+                        </Stack>
+                    )}
+                </Box>
+
+                <TableContainer sx={{display: {xs: "none", md: "block"}, maxHeight: "calc(100vh - 300px)", minHeight: 360}}>
                     <Table stickyHeader size="small" sx={{tableLayout: "fixed", minWidth: 980}}>
                         <TableHead>
                             <TableRow>
@@ -345,7 +399,7 @@ export function Jobs() {
                                     </TableCell>
                                     <TableCell>
                                         <Typography variant="caption" color="text.secondary" noWrap component="div">
-                                            {formatDate(job.last_seen)}
+                                            {formatApiDateTime(job.last_seen)}
                                         </Typography>
                                     </TableCell>
                                 </TableRow>
@@ -409,11 +463,11 @@ export function Jobs() {
                                     <DetailField label="Location" value={selectedJob.location}/>
                                     <DetailField label="Practice Area" value={selectedJob.practice_area}/>
                                     <DetailField label="PQE" value={selectedJob.pqe_level}/>
-                                    <DetailField label="First Seen" value={formatDate(selectedJob.first_seen)}/>
-                                    <DetailField label="Last Seen Live" value={formatDate(selectedJob.last_seen)}/>
-                                    <DetailField label="Removed Date" value={formatDate(selectedJob.removed_at)}/>
+                                    <DetailField label="First Seen" value={formatApiDateTime(selectedJob.first_seen)}/>
+                                    <DetailField label="Last Seen Live" value={formatApiDateTime(selectedJob.last_seen)}/>
+                                    <DetailField label="Removed Date" value={formatApiDateTime(selectedJob.removed_at)}/>
                                     <DetailField label="Reference" value={selectedJob.source_reference}/>
-                                    <DetailField label="Last Checked" value={formatDate(selectedJob.last_checked)}/>
+                                    <DetailField label="Last Checked" value={formatApiDateTime(selectedJob.last_checked)}/>
                                 </Stack>
 
                                 {selectedJob.job_url ? (
@@ -448,7 +502,7 @@ export function Jobs() {
                                                 <Paper key={`${entry.timestamp}-${index}`} variant="outlined" sx={{p: 1.5}}>
                                                     <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
                                                         <Chip size="small" label={entry.event} variant="outlined" sx={{fontWeight: 700, ...statusChipSx(entry.event)}}/>
-                                                        <Typography variant="caption" color="text.secondary">{formatDate(entry.timestamp)}</Typography>
+                                                        <Typography variant="caption" color="text.secondary">{formatApiDateTime(entry.timestamp)}</Typography>
                                                     </Stack>
                                                     {entry.message ? (
                                                         <Typography variant="body2" sx={{mt: 1}}>{entry.message}</Typography>
