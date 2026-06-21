@@ -50,6 +50,10 @@ function formatDate(value: Date | null) {
     return value ? value.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : "Not refreshed yet";
 }
 
+function isFinalScrapeStatus(status: string | null | undefined) {
+    return ["success", "failed", "partial"].includes(status || "");
+}
+
 export function RootLayout() {
     const [showNotifications, setShowNotifications] = useState(false);
     const [running, setRunning] = useState(false);
@@ -144,7 +148,7 @@ export function RootLayout() {
             (progress) => {
                 if (cancelled) return;
                 setScrapeProgress(progress);
-                const done = ["success", "failed", "partial"].includes(progress.status);
+                const done = isFinalScrapeStatus(progress.status);
                 setRunning(!done);
                 if (done) {
                     clearActiveScrapeRunId(activeRunId);
@@ -157,6 +161,7 @@ export function RootLayout() {
                     clearActiveScrapeRunId(activeRunId);
                     setRunning(false);
                     setActiveRunId(null);
+                    setScrapeProgress(null);
                 }
             },
         );
@@ -165,6 +170,15 @@ export function RootLayout() {
             unsubscribe();
         };
     }, [activeRunId]);
+
+    useEffect(() => {
+        if (!isFinalScrapeStatus(scrapeProgress?.status)) return;
+        const runId = scrapeProgress?.run_id;
+        const timer = window.setTimeout(() => {
+            setScrapeProgress((current) => current?.run_id === runId ? null : current);
+        }, 5000);
+        return () => window.clearTimeout(timer);
+    }, [scrapeProgress?.run_id, scrapeProgress?.status]);
 
     const handleRunAll = async () => {
         setRunning(true);
@@ -225,7 +239,7 @@ export function RootLayout() {
                         className="w-full"
                     >
                         <Play className="w-4 h-4"/>
-                        {running ? "Starting..." : "Run All Sites"}
+                        {running ? (scrapeProgress ? "Running..." : "Starting...") : "Run All Sites"}
                     </Button>
                     {scrapeProgress ? (
                         <div className="rounded-md border bg-gray-50 p-3">

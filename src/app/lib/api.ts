@@ -219,6 +219,7 @@ export function subscribeScrapeProgress(
   const controller = new AbortController();
   let closed = false;
   let fallbackTimer: number | null = null;
+  let terminalReceived = false;
 
   function close() {
     closed = true;
@@ -238,6 +239,7 @@ export function subscribeScrapeProgress(
         if (closed) return;
         onProgress(progress);
         if (["success", "failed", "partial"].includes(progress.status)) {
+          terminalReceived = true;
           close();
         }
       } catch (error) {
@@ -289,14 +291,18 @@ export function subscribeScrapeProgress(
           const progress = JSON.parse(data) as ScrapeProgress;
           onProgress(progress);
           if (["success", "failed", "partial"].includes(progress.status)) {
+            terminalReceived = true;
             close();
             return;
           }
         }
       }
+
+      if (!closed && !terminalReceived) {
+        startFallback();
+      }
     } catch (error) {
       if (closed) return;
-      onError?.(error);
       startFallback();
     }
   }

@@ -35,6 +35,10 @@ import {
 } from "../lib/activeScrapeRun";
 import { formatApiDateTime } from "../lib/dates";
 
+function isFinalScrapeStatus(status: string | null | undefined) {
+  return ["success", "failed", "partial"].includes(status || "");
+}
+
 export function Firms() {
   const [firms, setFirms] = useState<Firm[]>([]);
   const [loading, setLoading] = useState(false);
@@ -82,7 +86,7 @@ export function Firms() {
       (progress) => {
         if (cancelled) return;
         setScrapeProgress(progress);
-        const done = ["success", "failed", "partial"].includes(progress.status);
+        const done = isFinalScrapeStatus(progress.status);
         if (done) {
           clearActiveScrapeRunId(activeRunId);
           setStartingFirm(null);
@@ -95,6 +99,7 @@ export function Firms() {
           clearActiveScrapeRunId(activeRunId);
           setStartingFirm(null);
           setActiveRunId(null);
+          setScrapeProgress(null);
         }
       },
     );
@@ -127,6 +132,15 @@ export function Firms() {
       setStartingFirm(null);
     }
   }
+
+  useEffect(() => {
+    if (!isFinalScrapeStatus(scrapeProgress?.status)) return;
+    const runId = scrapeProgress?.run_id;
+    const timer = window.setTimeout(() => {
+      setScrapeProgress((current) => current?.run_id === runId ? null : current);
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [scrapeProgress?.run_id, scrapeProgress?.status]);
 
   return (
     <div className="space-y-4 p-3 md:p-6">
