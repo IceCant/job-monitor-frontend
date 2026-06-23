@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Play } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Play, Search } from "lucide-react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "../components/ui/card";
 import { Progress } from "../components/ui/progress";
+import { Input } from "../components/ui/input";
 import {
   Pagination,
   PaginationContent,
@@ -39,18 +40,85 @@ function isFinalScrapeStatus(status: string | null | undefined) {
   return ["success", "failed", "partial"].includes(status || "");
 }
 
+type SortKey = "name" | "plugin" | "active" | "last_run_at" | "last_run_status" | "total_jobs" | "removed_jobs" | "needs_review_jobs";
+type SortDirection = "asc" | "desc";
+
+const sortableColumns: Array<{ key: SortKey; label: string; className: string }> = [
+  { key: "name", label: "Name", className: "w-[22%]" },
+  { key: "plugin", label: "Plugin", className: "w-[12%]" },
+  { key: "active", label: "Active", className: "w-[8%]" },
+  { key: "last_run_at", label: "Last Run", className: "w-[15%]" },
+  { key: "last_run_status", label: "Last Status", className: "w-[15%]" },
+  { key: "total_jobs", label: "Jobs", className: "w-[7%]" },
+  { key: "removed_jobs", label: "Removed", className: "w-[7%]" },
+  { key: "needs_review_jobs", label: "Review", className: "w-[7%]" },
+];
+
+function firmSortValue(firm: Firm, key: SortKey) {
+  if (key === "active") return firm.active ? 1 : 0;
+  if (key === "last_run_at") return firm.last_run_at ? new Date(firm.last_run_at).getTime() : 0;
+  if (key === "total_jobs" || key === "removed_jobs" || key === "needs_review_jobs") return firm[key];
+  return (firm[key] || "").toString().toLowerCase();
+}
+
 export function Firms() {
   const [firms, setFirms] = useState<Firm[]>([]);
   const [loading, setLoading] = useState(false);
   const [startingFirm, setStartingFirm] = useState<string | null>(null);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [scrapeProgress, setScrapeProgress] = useState<ScrapeProgress | null>(null);
+  const [search, setSearch] = useState("");
+  const [activeFilter, setActiveFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const navigate = useNavigate();
 
-  const totalPages = Math.max(1, Math.ceil(firms.length / pageSize));
-  const visibleFirms = firms.slice((page - 1) * pageSize, page * pageSize);
+  const statusOptions = useMemo(() => {
+    const statuses = new Set(
+      firms
+        .map((firm) => firm.last_run_status)
+        .filter((status): status is string => Boolean(status)),
+    );
+    return Array.from(statuses).sort((a, b) => a.localeCompare(b));
+  }, [firms]);
+
+  const filteredFirms = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return firms.filter((firm) => {
+      if (activeFilter === "enabled" && !firm.active) return false;
+      if (activeFilter === "disabled" && firm.active) return false;
+      if (statusFilter !== "all" && (firm.last_run_status || "") !== statusFilter) return false;
+      if (!query) return true;
+
+      return [
+        firm.name,
+        firm.key,
+        firm.plugin,
+        firm.careers_url,
+        firm.last_run_status,
+        firm.last_error,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
+  }, [activeFilter, firms, search, statusFilter]);
+
+  const sortedFirms = useMemo(() => {
+    return [...filteredFirms].sort((a, b) => {
+      const aValue = firmSortValue(a, sortKey);
+      const bValue = firmSortValue(b, sortKey);
+      const result = typeof aValue === "number" && typeof bValue === "number"
+        ? aValue - bValue
+        : String(aValue).localeCompare(String(bValue), undefined, { numeric: true, sensitivity: "base" });
+      return sortDirection === "asc" ? result : -result;
+    });
+  }, [filteredFirms, sortDirection, sortKey]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedFirms.length / pageSize));
+  const visibleFirms = sortedFirms.slice((page - 1) * pageSize, page * pageSize);
 
   async function loadFirms() {
     setLoading(true);
@@ -66,6 +134,10 @@ export function Firms() {
   useEffect(() => {
     loadFirms();
   }, []);
+
+  useEffect(() => {
+    setPage((currentPage) => Math.min(currentPage, totalPages));
+  }, [totalPages]);
 
   useEffect(() => {
     function restoreActiveRun() {
@@ -100,6 +172,7 @@ export function Firms() {
           setStartingFirm(null);
           setActiveRunId(null);
           setScrapeProgress(null);
+          loadFirms();
         }
       },
     );
@@ -131,6 +204,28 @@ export function Firms() {
       toast.error(`Could not start scrape for ${firmName}`);
       setStartingFirm(null);
     }
+  }
+
+  function updateSort(nextKey: SortKey) {
+    setPage(1);
+    if (nextKey === sortKey) {
+      setSortDirection((direction) => direction === "asc" ? "desc" : "asc");
+      return;
+    }
+
+    setSortKey(nextKey);
+    setSortDirection(nextKey === "last_run_at" || nextKey.endsWith("_jobs") ? "desc" : "asc");
+  }
+
+  function SortIcon({ column }: { column: SortKey }) {
+    if (sortKey !== column) return <ChevronsUpDown className="h-3.5 w-3.5 text-gray-400" />;
+    return sortDirection === "asc"
+      ? <ArrowUp className="h-3.5 w-3.5 text-gray-700" />
+      : <ArrowDown className="h-3.5 w-3.5 text-gray-700" />;
+  }
+
+  function isFirmRunning(firmKey: string) {
+    return startingFirm === firmKey || (Boolean(activeRunId) && scrapeProgress?.firm_key === firmKey && !isFinalScrapeStatus(scrapeProgress.status));
   }
 
   useEffect(() => {
@@ -190,8 +285,53 @@ export function Firms() {
       ) : null}
 
       <Card className="overflow-hidden">
-        <CardHeader>
-          <CardTitle>Firms</CardTitle>
+        <CardHeader className="gap-3">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <CardTitle>Firms</CardTitle>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
+              <span>{sortedFirms.length} shown</span>
+              {sortedFirms.length !== firms.length ? <span>{firms.length} total</span> : null}
+            </div>
+          </div>
+          <div className="grid gap-2 md:grid-cols-[minmax(220px,1fr)_160px_170px]">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Input
+                value={search}
+                onChange={(event) => {
+                  setPage(1);
+                  setSearch(event.target.value);
+                }}
+                placeholder="Filter firms, plugins, URLs..."
+                className="pl-8"
+              />
+            </div>
+            <select
+              className="h-9 rounded-md border bg-white px-3 text-sm text-gray-700"
+              value={activeFilter}
+              onChange={(event) => {
+                setPage(1);
+                setActiveFilter(event.target.value);
+              }}
+            >
+              <option value="all">All active states</option>
+              <option value="enabled">Enabled only</option>
+              <option value="disabled">Disabled only</option>
+            </select>
+            <select
+              className="h-9 rounded-md border bg-white px-3 text-sm text-gray-700"
+              value={statusFilter}
+              onChange={(event) => {
+                setPage(1);
+                setStatusFilter(event.target.value);
+              }}
+            >
+              <option value="all">All run statuses</option>
+              {statusOptions.map((status) => (
+                <option key={status} value={status}>{status}</option>
+              ))}
+            </select>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-3 md:hidden">
@@ -237,11 +377,11 @@ export function Firms() {
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={startingFirm === firm.key}
+                    disabled={isFirmRunning(firm.key)}
                     onClick={() => runNow(firm.key, firm.name)}
                     className="mt-3 w-full"
                   >
-                    <Play className="w-4 h-4" /> {startingFirm === firm.key ? "Starting" : "Run"}
+                    <Play className="w-4 h-4" /> {isFirmRunning(firm.key) ? "Running" : "Run"}
                   </Button>
                 </div>
               ))
@@ -251,14 +391,19 @@ export function Firms() {
           <Table className="hidden min-w-[1160px] table-fixed md:table">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[22%]">Name</TableHead>
-                <TableHead className="w-[12%]">Plugin</TableHead>
-                <TableHead className="w-[8%]">Active</TableHead>
-                <TableHead className="w-[15%]">Last Run</TableHead>
-                <TableHead className="w-[15%]">Last Status</TableHead>
-                <TableHead className="w-[7%]">Jobs</TableHead>
-                <TableHead className="w-[7%]">Removed</TableHead>
-                <TableHead className="w-[7%]">Review</TableHead>
+                {sortableColumns.map((column) => (
+                  <TableHead key={column.key} className={column.className}>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-1 text-left hover:text-gray-900"
+                      onClick={() => updateSort(column.key)}
+                      aria-sort={sortKey === column.key ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}
+                    >
+                      <span>{column.label}</span>
+                      <SortIcon column={column.key} />
+                    </button>
+                  </TableHead>
+                ))}
                 <TableHead className="w-[7%]">Action</TableHead>
               </TableRow>
             </TableHeader>
@@ -301,10 +446,10 @@ export function Firms() {
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={startingFirm === firm.key}
+                        disabled={isFirmRunning(firm.key)}
                         onClick={() => runNow(firm.key, firm.name)}
                       >
-                        <Play className="w-4 h-4" /> {startingFirm === firm.key ? "Starting" : "Run"}
+                        <Play className="w-4 h-4" /> {isFirmRunning(firm.key) ? "Running" : "Run"}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -315,7 +460,7 @@ export function Firms() {
           <div className="mt-3 flex flex-col gap-3 border-t pt-3 md:flex-row md:items-center md:justify-between">
             <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500">
               <span>Page {page} / {totalPages}</span>
-              <span>{firms.length} firms</span>
+              <span>{sortedFirms.length} firms</span>
               <label className="flex items-center gap-2 text-sm">
                 Rows
                 <select

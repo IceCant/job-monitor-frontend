@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useState} from "react";
-import {Download, ExternalLink, RotateCcw, Search, X} from "lucide-react";
+import {Download, ExternalLink, Plus, RotateCcw, Search, Trash2, X} from "lucide-react";
 import {toast} from "sonner";
 import {
     Box,
@@ -30,6 +30,7 @@ import {
     TableHead,
     TablePagination,
     TableRow,
+    TableSortLabel,
     TextField,
     Tooltip,
     Typography,
@@ -39,6 +40,95 @@ import {exportJobs, getJob, listFirms, listJobs, type Firm, type Job} from "../l
 import {formatApiDateTime} from "../lib/dates";
 
 const statusOptions = ["NEW", "LIVE", "UPDATED", "REPOSTED", "NEEDS_REVIEW", "REMOVED"];
+type SortKey = "firm" | "title" | "location" | "status" | "last_seen";
+type SortDirection = "asc" | "desc";
+type ExportConditionOperator =
+    | "contains"
+    | "not_contains"
+    | "equals"
+    | "not_equals"
+    | "starts_with"
+    | "ends_with"
+    | "is_empty"
+    | "is_not_empty"
+    | "before"
+    | "after"
+    | "on_or_before"
+    | "on_or_after";
+type ExportFieldType = "text" | "date";
+type ExportFieldFilter = {
+    id: string;
+    field: string;
+    operator: ExportConditionOperator;
+    value: string;
+};
+
+const jobColumns: Array<{ key: SortKey; label: string; width: string }> = [
+    {key: "firm", label: "Firm", width: "18%"},
+    {key: "title", label: "Title", width: "37%"},
+    {key: "location", label: "Location", width: "20%"},
+    {key: "status", label: "Status", width: "12%"},
+    {key: "last_seen", label: "Last Seen", width: "13%"},
+];
+
+const exportFields: Array<{ key: string; label: string; type: ExportFieldType }> = [
+    {key: "firm", label: "Firm", type: "text"},
+    {key: "title", label: "Title", type: "text"},
+    {key: "location", label: "Location", type: "text"},
+    {key: "practice_area", label: "Practice Area", type: "text"},
+    {key: "pqe_level", label: "PQE", type: "text"},
+    {key: "status", label: "Status", type: "text"},
+    {key: "source_reference", label: "Reference", type: "text"},
+    {key: "job_url", label: "URL", type: "text"},
+    {key: "full_description", label: "Description", type: "text"},
+    {key: "first_seen", label: "First Seen", type: "date"},
+    {key: "last_seen", label: "Last Seen", type: "date"},
+    {key: "last_checked", label: "Last Checked", type: "date"},
+    {key: "removed_at", label: "Removed Date", type: "date"},
+];
+
+const textConditionOptions: Array<{ value: ExportConditionOperator; label: string; needsValue: boolean }> = [
+    {value: "contains", label: "contains", needsValue: true},
+    {value: "not_contains", label: "does not contain", needsValue: true},
+    {value: "equals", label: "equals", needsValue: true},
+    {value: "not_equals", label: "does not equal", needsValue: true},
+    {value: "starts_with", label: "starts with", needsValue: true},
+    {value: "ends_with", label: "ends with", needsValue: true},
+    {value: "is_empty", label: "is empty", needsValue: false},
+    {value: "is_not_empty", label: "is not empty", needsValue: false},
+];
+
+const dateConditionOptions: Array<{ value: ExportConditionOperator; label: string; needsValue: boolean }> = [
+    {value: "equals", label: "is on", needsValue: true},
+    {value: "not_equals", label: "is not on", needsValue: true},
+    {value: "before", label: "is before", needsValue: true},
+    {value: "after", label: "is after", needsValue: true},
+    {value: "on_or_before", label: "is on/before", needsValue: true},
+    {value: "on_or_after", label: "is on/after", needsValue: true},
+    {value: "is_empty", label: "is empty", needsValue: false},
+    {value: "is_not_empty", label: "is not empty", needsValue: false},
+];
+
+function exportFieldType(field: string): ExportFieldType {
+    return exportFields.find((item) => item.key === field)?.type || "text";
+}
+
+function exportConditionOptions(field: string) {
+    return exportFieldType(field) === "date" ? dateConditionOptions : textConditionOptions;
+}
+
+function exportConditionNeedsValue(field: string, operator: ExportConditionOperator) {
+    return exportConditionOptions(field).find((item) => item.value === operator)?.needsValue ?? true;
+}
+
+function newExportFieldFilter(): ExportFieldFilter {
+    return {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        field: "title",
+        operator: "contains",
+        value: "",
+    };
+}
 
 function statusChipSx(status: string | null | undefined) {
     switch ((status || "LIVE").toUpperCase()) {
@@ -84,12 +174,15 @@ export function Jobs() {
     const [firm, setFirm] = useState("all");
     const [loading, setLoading] = useState(false);
     const [changedOnly, setChangedOnly] = useState(false);
+    const [sortBy, setSortBy] = useState<SortKey>("last_seen");
+    const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
     const [exportOpen, setExportOpen] = useState(false);
     const [exportFormat, setExportFormat] = useState<"csv" | "xlsx">("csv");
     const [exportSearch, setExportSearch] = useState("");
-    const [exportStatus, setExportStatus] = useState("all");
-    const [exportFirm, setExportFirm] = useState("all");
+    const [exportStatuses, setExportStatuses] = useState<string[]>([]);
+    const [exportFirms, setExportFirms] = useState<string[]>([]);
     const [exportChangedOnly, setExportChangedOnly] = useState(false);
+    const [exportFieldFilters, setExportFieldFilters] = useState<ExportFieldFilter[]>([]);
 
     const hasFilters = Boolean(search) || status !== "all" || firm !== "all" || changedOnly;
 
@@ -101,8 +194,10 @@ export function Jobs() {
         if (status !== "all") q.set("status", status);
         if (firm !== "all") q.set("firm", firm);
         if (changedOnly) q.set("changed_only", "true");
+        q.set("sort_by", sortBy);
+        q.set("sort_direction", sortDirection);
         return q;
-    }, [changedOnly, firm, page, pageSize, search, status]);
+    }, [changedOnly, firm, page, pageSize, search, sortBy, sortDirection, status]);
 
     useEffect(() => {
         listFirms().then(setFirms).catch(() => setFirms([]));
@@ -121,8 +216,8 @@ export function Jobs() {
 
     function openExportModal() {
         setExportSearch(search);
-        setExportStatus(status);
-        setExportFirm(firm);
+        setExportStatuses(status === "all" ? [] : [status]);
+        setExportFirms(firm === "all" ? [] : [firm]);
         setExportChangedOnly(changedOnly);
         setExportOpen(true);
     }
@@ -138,10 +233,49 @@ export function Jobs() {
     function buildExportParams() {
         const q = new URLSearchParams();
         if (exportSearch) q.set("search", exportSearch);
-        if (exportStatus !== "all") q.set("status", exportStatus);
-        if (exportFirm !== "all") q.set("firm", exportFirm);
+        exportStatuses.forEach((item) => q.append("status", item));
+        exportFirms.forEach((item) => q.append("firm", item));
         if (exportChangedOnly) q.set("changed_only", "true");
+        const cleanFieldFilters = exportFieldFilters
+            .filter((item) => item.field && item.operator)
+            .filter((item) => !exportConditionNeedsValue(item.field, item.operator) || item.value.trim())
+            .map((item) => ({
+                field: item.field,
+                operator: item.operator,
+                value: item.value.trim(),
+            }));
+        if (cleanFieldFilters.length > 0) {
+            q.set("field_filters", JSON.stringify(cleanFieldFilters));
+        }
+        q.set("sort_by", sortBy);
+        q.set("sort_direction", sortDirection);
         return q;
+    }
+
+    function updateExportFieldFilter(id: string, updates: Partial<ExportFieldFilter>) {
+        setExportFieldFilters((filters) => filters.map((item) => {
+            if (item.id !== id) return item;
+            const next = {...item, ...updates};
+            if (updates.field) {
+                next.operator = exportFieldType(updates.field) === "date" ? "equals" : "contains";
+                next.value = "";
+            }
+            if (updates.operator && !exportConditionNeedsValue(next.field, updates.operator)) {
+                next.value = "";
+            }
+            return next;
+        }));
+    }
+
+    function updateSort(nextSortBy: SortKey) {
+        setPage(1);
+        if (nextSortBy === sortBy) {
+            setSortDirection((direction) => direction === "asc" ? "desc" : "asc");
+            return;
+        }
+
+        setSortBy(nextSortBy);
+        setSortDirection(nextSortBy === "last_seen" ? "desc" : "asc");
     }
 
     async function handleExport() {
@@ -333,11 +467,21 @@ export function Jobs() {
                     <Table stickyHeader size="small" sx={{tableLayout: "fixed", minWidth: 980}}>
                         <TableHead>
                             <TableRow>
-                                <TableCell sx={{width: "18%", fontWeight: 700}}>Firm</TableCell>
-                                <TableCell sx={{width: "37%", fontWeight: 700}}>Title</TableCell>
-                                <TableCell sx={{width: "20%", fontWeight: 700}}>Location</TableCell>
-                                <TableCell sx={{width: "12%", fontWeight: 700}}>Status</TableCell>
-                                <TableCell sx={{width: "13%", fontWeight: 700}}>Last Seen</TableCell>
+                                {jobColumns.map((column) => (
+                                    <TableCell
+                                        key={column.key}
+                                        sortDirection={sortBy === column.key ? sortDirection : false}
+                                        sx={{width: column.width, fontWeight: 700}}
+                                    >
+                                        <TableSortLabel
+                                            active={sortBy === column.key}
+                                            direction={sortBy === column.key ? sortDirection : "asc"}
+                                            onClick={() => updateSort(column.key)}
+                                        >
+                                            {column.label}
+                                        </TableSortLabel>
+                                    </TableCell>
+                                ))}
                             </TableRow>
                         </TableHead>
                         <TableBody>
@@ -538,11 +682,11 @@ export function Jobs() {
                 ) : null}
             </Drawer>
 
-            <Dialog open={exportOpen} onClose={() => setExportOpen(false)} fullWidth maxWidth="sm">
+            <Dialog open={exportOpen} onClose={() => setExportOpen(false)} fullWidth maxWidth="md">
                 <DialogTitle>Export Jobs</DialogTitle>
                 <DialogContent>
                     <DialogContentText sx={{mb: 2}}>
-                        Choose export format and filters.
+                        Choose export format and filters. Leave firms or statuses empty to include all.
                     </DialogContentText>
                     <Stack spacing={2}>
                         <FormControl size="small" fullWidth>
@@ -567,11 +711,21 @@ export function Jobs() {
                             <FormControl size="small" fullWidth>
                                 <InputLabel>Status</InputLabel>
                                 <Select
+                                    multiple
                                     label="Status"
-                                    value={exportStatus}
-                                    onChange={(event) => setExportStatus(event.target.value)}
+                                    value={exportStatuses}
+                                    onChange={(event) => {
+                                        const value = event.target.value;
+                                        setExportStatuses(typeof value === "string" ? value.split(",") : value);
+                                    }}
+                                    renderValue={(selected) => (
+                                        <Box sx={{display: "flex", flexWrap: "wrap", gap: 0.5}}>
+                                            {selected.map((item) => (
+                                                <Chip key={item} size="small" label={item.replace("_", " ")}/>
+                                            ))}
+                                        </Box>
+                                    )}
                                 >
-                                    <MenuItem value="all">All statuses</MenuItem>
                                     {statusOptions.map((item) => (
                                         <MenuItem key={item} value={item}>{item.replace("_", " ")}</MenuItem>
                                     ))}
@@ -580,11 +734,25 @@ export function Jobs() {
                             <FormControl size="small" fullWidth>
                                 <InputLabel>Firm</InputLabel>
                                 <Select
+                                    multiple
                                     label="Firm"
-                                    value={exportFirm}
-                                    onChange={(event) => setExportFirm(event.target.value)}
+                                    value={exportFirms}
+                                    onChange={(event) => {
+                                        const value = event.target.value;
+                                        setExportFirms(typeof value === "string" ? value.split(",") : value);
+                                    }}
+                                    renderValue={(selected) => (
+                                        <Box sx={{display: "flex", flexWrap: "wrap", gap: 0.5}}>
+                                            {selected.map((item) => (
+                                                <Chip
+                                                    key={item}
+                                                    size="small"
+                                                    label={firms.find((firmItem) => firmItem.key === item)?.name || item}
+                                                />
+                                            ))}
+                                        </Box>
+                                    )}
                                 >
-                                    <MenuItem value="all">All firms</MenuItem>
                                     {firms.map((item) => (
                                         <MenuItem key={item.key} value={item.key}>{item.name}</MenuItem>
                                     ))}
@@ -595,6 +763,91 @@ export function Jobs() {
                             control={<Checkbox checked={exportChangedOnly} onChange={(event) => setExportChangedOnly(event.target.checked)}/>}
                             label="Changed / review only"
                         />
+
+                        <Divider/>
+
+                        <Stack spacing={1.5}>
+                            <Stack direction={{xs: "column", sm: "row"}} justifyContent="space-between" alignItems={{xs: "stretch", sm: "center"}} spacing={1}>
+                                <Box>
+                                    <Typography variant="subtitle2" sx={{fontWeight: 700}}>Field conditions</Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                        All added conditions must match for a row to export.
+                                    </Typography>
+                                </Box>
+                                <Button
+                                    variant="outlined"
+                                    size="small"
+                                    startIcon={<Plus size={16}/>}
+                                    onClick={() => setExportFieldFilters((filters) => [...filters, newExportFieldFilter()])}
+                                >
+                                    Add condition
+                                </Button>
+                            </Stack>
+
+                            {exportFieldFilters.length === 0 ? (
+                                <Typography variant="body2" color="text.secondary">
+                                    No field conditions added.
+                                </Typography>
+                            ) : (
+                                <Stack spacing={1}>
+                                    {exportFieldFilters.map((filter) => {
+                                        const needsValue = exportConditionNeedsValue(filter.field, filter.operator);
+                                        return (
+                                            <Box
+                                                key={filter.id}
+                                                sx={{
+                                                    display: "grid",
+                                                    gap: 1,
+                                                    gridTemplateColumns: {xs: "1fr", md: "1.1fr 1.1fr minmax(180px, 1fr) auto"},
+                                                    alignItems: "center",
+                                                }}
+                                            >
+                                                <FormControl size="small" fullWidth>
+                                                    <InputLabel>Field</InputLabel>
+                                                    <Select
+                                                        label="Field"
+                                                        value={filter.field}
+                                                        onChange={(event) => updateExportFieldFilter(filter.id, {field: event.target.value})}
+                                                    >
+                                                        {exportFields.map((fieldItem) => (
+                                                            <MenuItem key={fieldItem.key} value={fieldItem.key}>{fieldItem.label}</MenuItem>
+                                                        ))}
+                                                    </Select>
+                                                </FormControl>
+                                                <FormControl size="small" fullWidth>
+                                                    <InputLabel>Condition</InputLabel>
+                                                    <Select
+                                                        label="Condition"
+                                                        value={filter.operator}
+                                                        onChange={(event) => updateExportFieldFilter(filter.id, {operator: event.target.value as ExportConditionOperator})}
+                                                    >
+                                                        {exportConditionOptions(filter.field).map((option) => (
+                                                            <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                                                        ))}
+                                                    </Select>
+                                                </FormControl>
+                                                <TextField
+                                                    size="small"
+                                                    label="Value"
+                                                    type={exportFieldType(filter.field) === "date" ? "date" : "text"}
+                                                    value={filter.value}
+                                                    disabled={!needsValue}
+                                                    placeholder={needsValue ? "Value" : "No value needed"}
+                                                    InputLabelProps={exportFieldType(filter.field) === "date" ? {shrink: true} : undefined}
+                                                    onChange={(event) => updateExportFieldFilter(filter.id, {value: event.target.value})}
+                                                />
+                                                <IconButton
+                                                    aria-label="Remove condition"
+                                                    onClick={() => setExportFieldFilters((filters) => filters.filter((item) => item.id !== filter.id))}
+                                                >
+                                                    <Trash2 size={17}/>
+                                                </IconButton>
+                                            </Box>
+                                        );
+                                    })}
+                                </Stack>
+                            )}
+                        </Stack>
                     </Stack>
                 </DialogContent>
                 <DialogActions>

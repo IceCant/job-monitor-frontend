@@ -220,6 +220,7 @@ export function subscribeScrapeProgress(
   let closed = false;
   let fallbackTimer: number | null = null;
   let terminalReceived = false;
+  let fallbackFailures = 0;
 
   function close() {
     closed = true;
@@ -237,19 +238,23 @@ export function subscribeScrapeProgress(
       try {
         const progress = await getScrapeProgress(runId);
         if (closed) return;
+        fallbackFailures = 0;
         onProgress(progress);
         if (["success", "failed", "partial"].includes(progress.status)) {
           terminalReceived = true;
           close();
         }
       } catch (error) {
-        onError?.(error);
-        close();
+        fallbackFailures += 1;
+        if (fallbackFailures >= 6) {
+          onError?.(error);
+          close();
+        }
       }
     };
 
     load();
-    fallbackTimer = window.setInterval(load, 5000);
+    fallbackTimer = window.setInterval(load, 2000);
   }
 
   async function stream() {
