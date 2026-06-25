@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useState} from "react";
-import {Download, ExternalLink, Plus, RotateCcw, Search, Trash2, X} from "lucide-react";
+import {Download, ExternalLink, Filter, Plus, RotateCcw, Search, Trash2, X} from "lucide-react";
 import {toast} from "sonner";
 import {
     Box,
@@ -7,6 +7,7 @@ import {
     Card,
     Checkbox,
     Chip,
+    Collapse,
     Dialog,
     DialogActions,
     DialogContent,
@@ -42,6 +43,7 @@ import {formatApiDateTime} from "../lib/dates";
 const statusOptions = ["NEW", "LIVE", "UPDATED", "REPOSTED", "NEEDS_REVIEW", "REMOVED"];
 type SortKey = "firm" | "title" | "location" | "status" | "last_seen";
 type SortDirection = "asc" | "desc";
+type DatePreset = "all" | "found_today" | "found_morning" | "checked_today" | "checked_morning" | "removed_today" | "removed_morning";
 type ExportConditionOperator =
     | "contains"
     | "not_contains"
@@ -69,6 +71,16 @@ const jobColumns: Array<{ key: SortKey; label: string; width: string }> = [
     {key: "location", label: "Location", width: "20%"},
     {key: "status", label: "Status", width: "12%"},
     {key: "last_seen", label: "Last Seen", width: "13%"},
+];
+
+const datePresetOptions: Array<{ value: DatePreset; label: string }> = [
+    {value: "all", label: "All dates"},
+    {value: "found_today", label: "New/found today"},
+    {value: "found_morning", label: "New/found this morning"},
+    {value: "checked_today", label: "Scraped/checked today"},
+    {value: "checked_morning", label: "Scraped/checked this morning"},
+    {value: "removed_today", label: "Removed today"},
+    {value: "removed_morning", label: "Removed this morning"},
 ];
 
 const exportFields: Array<{ key: string; label: string; type: ExportFieldType }> = [
@@ -130,6 +142,22 @@ function newExportFieldFilter(): ExportFieldFilter {
     };
 }
 
+function toDatetimeLocalValue(date: Date) {
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function todayRange(hourTo = 24) {
+    const from = new Date();
+    from.setHours(0, 0, 0, 0);
+    const to = new Date(from);
+    to.setHours(hourTo, 0, 0, 0);
+    return {
+        from: toDatetimeLocalValue(from),
+        to: toDatetimeLocalValue(to),
+    };
+}
+
 function statusChipSx(status: string | null | undefined) {
     switch ((status || "LIVE").toUpperCase()) {
         case "NEW":
@@ -174,6 +202,14 @@ export function Jobs() {
     const [firm, setFirm] = useState("all");
     const [loading, setLoading] = useState(false);
     const [changedOnly, setChangedOnly] = useState(false);
+    const [datePreset, setDatePreset] = useState<DatePreset>("all");
+    const [firstSeenFrom, setFirstSeenFrom] = useState("");
+    const [firstSeenTo, setFirstSeenTo] = useState("");
+    const [checkedFrom, setCheckedFrom] = useState("");
+    const [checkedTo, setCheckedTo] = useState("");
+    const [removedFrom, setRemovedFrom] = useState("");
+    const [removedTo, setRemovedTo] = useState("");
+    const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
     const [sortBy, setSortBy] = useState<SortKey>("last_seen");
     const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
     const [exportOpen, setExportOpen] = useState(false);
@@ -184,7 +220,8 @@ export function Jobs() {
     const [exportChangedOnly, setExportChangedOnly] = useState(false);
     const [exportFieldFilters, setExportFieldFilters] = useState<ExportFieldFilter[]>([]);
 
-    const hasFilters = Boolean(search) || status !== "all" || firm !== "all" || changedOnly;
+    const hasDateFilters = Boolean(firstSeenFrom || firstSeenTo || checkedFrom || checkedTo || removedFrom || removedTo);
+    const hasFilters = Boolean(search) || status !== "all" || firm !== "all" || changedOnly || hasDateFilters;
 
     const params = useMemo(() => {
         const q = new URLSearchParams();
@@ -194,10 +231,16 @@ export function Jobs() {
         if (status !== "all") q.set("status", status);
         if (firm !== "all") q.set("firm", firm);
         if (changedOnly) q.set("changed_only", "true");
+        if (firstSeenFrom) q.set("first_seen_from", firstSeenFrom);
+        if (firstSeenTo) q.set("first_seen_to", firstSeenTo);
+        if (checkedFrom) q.set("checked_from", checkedFrom);
+        if (checkedTo) q.set("checked_to", checkedTo);
+        if (removedFrom) q.set("removed_from", removedFrom);
+        if (removedTo) q.set("removed_to", removedTo);
         q.set("sort_by", sortBy);
         q.set("sort_direction", sortDirection);
         return q;
-    }, [changedOnly, firm, page, pageSize, search, sortBy, sortDirection, status]);
+    }, [changedOnly, checkedFrom, checkedTo, firm, firstSeenFrom, firstSeenTo, page, pageSize, removedFrom, removedTo, search, sortBy, sortDirection, status]);
 
     useEffect(() => {
         listFirms().then(setFirms).catch(() => setFirms([]));
@@ -228,6 +271,13 @@ export function Jobs() {
         setStatus("all");
         setFirm("all");
         setChangedOnly(false);
+        setDatePreset("all");
+        setFirstSeenFrom("");
+        setFirstSeenTo("");
+        setCheckedFrom("");
+        setCheckedTo("");
+        setRemovedFrom("");
+        setRemovedTo("");
     }
 
     function buildExportParams() {
@@ -236,6 +286,12 @@ export function Jobs() {
         exportStatuses.forEach((item) => q.append("status", item));
         exportFirms.forEach((item) => q.append("firm", item));
         if (exportChangedOnly) q.set("changed_only", "true");
+        if (firstSeenFrom) q.set("first_seen_from", firstSeenFrom);
+        if (firstSeenTo) q.set("first_seen_to", firstSeenTo);
+        if (checkedFrom) q.set("checked_from", checkedFrom);
+        if (checkedTo) q.set("checked_to", checkedTo);
+        if (removedFrom) q.set("removed_from", removedFrom);
+        if (removedTo) q.set("removed_to", removedTo);
         const cleanFieldFilters = exportFieldFilters
             .filter((item) => item.field && item.operator)
             .filter((item) => !exportConditionNeedsValue(item.field, item.operator) || item.value.trim())
@@ -250,6 +306,46 @@ export function Jobs() {
         q.set("sort_by", sortBy);
         q.set("sort_direction", sortDirection);
         return q;
+    }
+
+    function applyDatePreset(nextPreset: DatePreset) {
+        setPage(1);
+        setDatePreset(nextPreset);
+        setFirstSeenFrom("");
+        setFirstSeenTo("");
+        setCheckedFrom("");
+        setCheckedTo("");
+        setRemovedFrom("");
+        setRemovedTo("");
+
+        if (nextPreset === "all") return;
+
+        const range = todayRange(nextPreset.endsWith("_morning") ? 12 : 24);
+        if (nextPreset.startsWith("found_")) {
+            setFirstSeenFrom(range.from);
+            setFirstSeenTo(range.to);
+            return;
+        }
+        if (nextPreset.startsWith("checked_")) {
+            setCheckedFrom(range.from);
+            setCheckedTo(range.to);
+            return;
+        }
+        if (nextPreset.startsWith("removed_")) {
+            setRemovedFrom(range.from);
+            setRemovedTo(range.to);
+        }
+    }
+
+    function clearDateFilters() {
+        setPage(1);
+        setDatePreset("all");
+        setFirstSeenFrom("");
+        setFirstSeenTo("");
+        setCheckedFrom("");
+        setCheckedTo("");
+        setRemovedFrom("");
+        setRemovedTo("");
     }
 
     function updateExportFieldFilter(id: string, updates: Partial<ExportFieldFilter>) {
@@ -325,7 +421,7 @@ export function Jobs() {
                             gap: 1.5,
                             gridTemplateColumns: {
                                 xs: "1fr",
-                                lg: "minmax(260px, 1.4fr) minmax(150px, .7fr) minmax(180px, .9fr) minmax(190px, .8fr) auto",
+                                lg: "minmax(260px, 1.4fr) minmax(150px, .7fr) minmax(180px, .9fr) minmax(190px, .8fr) auto auto",
                             },
                             alignItems: "center",
                         }}
@@ -399,10 +495,139 @@ export function Jobs() {
                                 ".MuiFormControlLabel-label": {fontSize: 14},
                             }}
                         />
+                        <Button
+                            variant={advancedFiltersOpen || hasDateFilters ? "contained" : "outlined"}
+                            startIcon={<Filter size={16}/>}
+                            onClick={() => setAdvancedFiltersOpen((open) => !open)}
+                        >
+                            Advanced{hasDateFilters ? " active" : ""}
+                        </Button>
                         <Button variant="outlined" startIcon={<RotateCcw size={16}/>} disabled={!hasFilters} onClick={clearFilters}>
                             Clear
                         </Button>
                     </Box>
+                    <Collapse in={advancedFiltersOpen} timeout="auto" unmountOnExit>
+                        <Box sx={{mt: 1.5, borderRadius: 1, border: 1, borderColor: "divider", bgcolor: "#f8fafc", p: 1.5}}>
+                            <Stack direction={{xs: "column", sm: "row"}} justifyContent="space-between" alignItems={{xs: "stretch", sm: "center"}} spacing={1.5} sx={{mb: 1.5}}>
+                                <Box>
+                                    <Typography variant="subtitle2" sx={{fontWeight: 700}}>Advanced date filters</Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                        Filter jobs by first found date, last scrape/check date, or removed date.
+                                    </Typography>
+                                </Box>
+                                <Button variant="outlined" size="small" disabled={!hasDateFilters} onClick={clearDateFilters}>
+                                    Clear dates
+                                </Button>
+                            </Stack>
+                            <Stack spacing={1.5}>
+                                <FormControl size="small" sx={{maxWidth: {sm: 320}}}>
+                                    <InputLabel>Quick preset</InputLabel>
+                                    <Select
+                                        label="Quick preset"
+                                        value={datePreset}
+                                        onChange={(event) => applyDatePreset(event.target.value as DatePreset)}
+                                    >
+                                        {datePresetOptions.map((item) => (
+                                            <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>
+                                        ))}
+                                    </Select>
+                                </FormControl>
+                                <Box
+                                    sx={{
+                                        display: "grid",
+                                        gap: 1.25,
+                                        gridTemplateColumns: {xs: "1fr", md: "150px minmax(180px, 1fr) minmax(180px, 1fr)"},
+                                        alignItems: "center",
+                                    }}
+                                >
+                                    <Box>
+                                        <Typography variant="body2" sx={{fontWeight: 700}}>Found / new</Typography>
+                                        <Typography variant="caption" color="text.secondary">First seen date</Typography>
+                                    </Box>
+                                    <TextField
+                                        size="small"
+                                        label="From"
+                                        type="datetime-local"
+                                        value={firstSeenFrom}
+                                        InputLabelProps={{shrink: true}}
+                                        onChange={(event) => {
+                                            setPage(1);
+                                            setDatePreset("all");
+                                            setFirstSeenFrom(event.target.value);
+                                        }}
+                                    />
+                                    <TextField
+                                        size="small"
+                                        label="To"
+                                        type="datetime-local"
+                                        value={firstSeenTo}
+                                        InputLabelProps={{shrink: true}}
+                                        onChange={(event) => {
+                                            setPage(1);
+                                            setDatePreset("all");
+                                            setFirstSeenTo(event.target.value);
+                                        }}
+                                    />
+                                    <Box>
+                                        <Typography variant="body2" sx={{fontWeight: 700}}>Scraped</Typography>
+                                        <Typography variant="caption" color="text.secondary">Last checked date</Typography>
+                                    </Box>
+                                    <TextField
+                                        size="small"
+                                        label="From"
+                                        type="datetime-local"
+                                        value={checkedFrom}
+                                        InputLabelProps={{shrink: true}}
+                                        onChange={(event) => {
+                                            setPage(1);
+                                            setDatePreset("all");
+                                            setCheckedFrom(event.target.value);
+                                        }}
+                                    />
+                                    <TextField
+                                        size="small"
+                                        label="To"
+                                        type="datetime-local"
+                                        value={checkedTo}
+                                        InputLabelProps={{shrink: true}}
+                                        onChange={(event) => {
+                                            setPage(1);
+                                            setDatePreset("all");
+                                            setCheckedTo(event.target.value);
+                                        }}
+                                    />
+                                    <Box>
+                                        <Typography variant="body2" sx={{fontWeight: 700}}>Removed</Typography>
+                                        <Typography variant="caption" color="text.secondary">Removed date</Typography>
+                                    </Box>
+                                    <TextField
+                                        size="small"
+                                        label="From"
+                                        type="datetime-local"
+                                        value={removedFrom}
+                                        InputLabelProps={{shrink: true}}
+                                        onChange={(event) => {
+                                            setPage(1);
+                                            setDatePreset("all");
+                                            setRemovedFrom(event.target.value);
+                                        }}
+                                    />
+                                    <TextField
+                                        size="small"
+                                        label="To"
+                                        type="datetime-local"
+                                        value={removedTo}
+                                        InputLabelProps={{shrink: true}}
+                                        onChange={(event) => {
+                                            setPage(1);
+                                            setDatePreset("all");
+                                            setRemovedTo(event.target.value);
+                                        }}
+                                    />
+                                </Box>
+                            </Stack>
+                        </Box>
+                    </Collapse>
                 </Box>
 
                 <Box sx={{display: {xs: "block", md: "none"}, p: 1.5}}>
