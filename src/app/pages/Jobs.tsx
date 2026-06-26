@@ -1,4 +1,5 @@
 import {useEffect, useMemo, useState} from "react";
+import type {MouseEvent} from "react";
 import {Download, ExternalLink, Filter, Plus, RotateCcw, Search, Trash2, X} from "lucide-react";
 import {toast} from "sonner";
 import {
@@ -20,6 +21,7 @@ import {
     IconButton,
     InputAdornment,
     InputLabel,
+    Link as MuiLink,
     MenuItem,
     Paper,
     Select,
@@ -222,6 +224,20 @@ export function Jobs() {
 
     const hasDateFilters = Boolean(firstSeenFrom || firstSeenTo || checkedFrom || checkedTo || removedFrom || removedTo);
     const hasFilters = Boolean(search) || status !== "all" || firm !== "all" || changedOnly || hasDateFilters;
+    const firmCareersUrlByKey = useMemo(() => {
+        const lookup = new Map<string, string>();
+        firms.forEach((item) => {
+            if (item.careers_url) lookup.set(item.key, item.careers_url);
+        });
+        return lookup;
+    }, [firms]);
+    const firmCareersUrlByName = useMemo(() => {
+        const lookup = new Map<string, string>();
+        firms.forEach((item) => {
+            if (item.name && item.careers_url) lookup.set(item.name.toLowerCase(), item.careers_url);
+        });
+        return lookup;
+    }, [firms]);
 
     const params = useMemo(() => {
         const q = new URLSearchParams();
@@ -399,6 +415,57 @@ export function Jobs() {
         getJob(job.id)
             .then(setSelectedJob)
             .catch(() => toast.error("Failed to load full job details"));
+    }
+
+    function firmCareersUrl(job: Job) {
+        if (job.firm_key) {
+            const byKey = firmCareersUrlByKey.get(job.firm_key);
+            if (byKey) return byKey;
+        }
+        if (job.firm) {
+            return firmCareersUrlByName.get(job.firm.toLowerCase()) || null;
+        }
+        return null;
+    }
+
+    function stopRowClick(event: MouseEvent) {
+        event.stopPropagation();
+    }
+
+    function renderFirmLink(job: Job, noWrap = true) {
+        const url = firmCareersUrl(job);
+        const label = job.firm || "-";
+        if (!url || label === "-") {
+            return <Typography variant="body2" noWrap={noWrap}>{label}</Typography>;
+        }
+
+        return (
+            <MuiLink
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                underline="hover"
+                variant="body2"
+                noWrap={noWrap}
+                onClick={stopRowClick}
+                sx={{display: "block", fontWeight: 600, overflowWrap: noWrap ? undefined : "anywhere"}}
+            >
+                {label}
+            </MuiLink>
+        );
+    }
+
+    function renderJobTitle(job: Job, noWrap = true) {
+        const label = job.title || "(Untitled)";
+        return (
+            <Typography
+                variant="body2"
+                noWrap={noWrap}
+                sx={{fontWeight: 700, minWidth: 0, overflowWrap: noWrap ? undefined : "anywhere"}}
+            >
+                {label}
+            </Typography>
+        );
     }
 
     return (
@@ -647,12 +714,8 @@ export function Jobs() {
                                     <Stack spacing={1}>
                                         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
                                             <Box sx={{minWidth: 0}}>
-                                                <Typography variant="subtitle2" sx={{fontWeight: 700, lineHeight: 1.25}}>
-                                                    {job.title || "(Untitled)"}
-                                                </Typography>
-                                                <Typography variant="caption" color="text.secondary" noWrap component="div">
-                                                    {job.firm || "-"}
-                                                </Typography>
+                                                {renderJobTitle(job, false)}
+                                                {renderFirmLink(job, false)}
                                             </Box>
                                             <Chip
                                                 size="small"
@@ -675,7 +738,7 @@ export function Jobs() {
                                                     href={job.job_url}
                                                     target="_blank"
                                                     rel="noreferrer"
-                                                    onClick={(event) => event.stopPropagation()}
+                                                    onClick={stopRowClick}
                                                 >
                                                     <ExternalLink size={15}/>
                                                 </IconButton>
@@ -727,25 +790,23 @@ export function Jobs() {
                                 >
                                     <TableCell>
                                         <Tooltip title={job.firm || "-"} placement="top-start">
-                                            <Typography variant="body2" noWrap>{job.firm || "-"}</Typography>
+                                            {renderFirmLink(job)}
                                         </Tooltip>
                                     </TableCell>
                                     <TableCell>
                                         <Stack direction="row" spacing={1} alignItems="center" sx={{minWidth: 0}}>
                                             <Tooltip title={job.title || "(Untitled)"} placement="top-start">
-                                                <Typography variant="body2" noWrap sx={{fontWeight: 600, minWidth: 0}}>
-                                                    {job.title || "(Untitled)"}
-                                                </Typography>
+                                                {renderJobTitle(job)}
                                             </Tooltip>
                                             {job.job_url ? (
-                                                <Tooltip title="Open careers site">
+                                                <Tooltip title="Open job posting">
                                                     <IconButton
                                                         size="small"
                                                         component="a"
                                                         href={job.job_url}
                                                         target="_blank"
                                                         rel="noreferrer"
-                                                        onClick={(event) => event.stopPropagation()}
+                                                        onClick={stopRowClick}
                                                     >
                                                         <ExternalLink size={15}/>
                                                     </IconButton>

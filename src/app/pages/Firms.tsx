@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ChevronsUpDown, Play, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, ExternalLink, Play, Search } from "lucide-react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -59,6 +59,30 @@ function firmSortValue(firm: Firm, key: SortKey) {
   if (key === "last_run_at") return firm.last_run_at ? new Date(firm.last_run_at).getTime() : 0;
   if (key === "total_jobs" || key === "removed_jobs" || key === "needs_review_jobs") return firm[key];
   return (firm[key] || "").toString().toLowerCase();
+}
+
+function FirmCareersLink({ firm, compact = false }: { firm: Firm; compact?: boolean }) {
+  if (!firm.careers_url) {
+    return (
+      <div className="truncate text-xs text-gray-500" title={firm.plugin || "-"}>
+        {firm.plugin || "-"}
+      </div>
+    );
+  }
+
+  return (
+    <a
+      href={firm.careers_url}
+      target="_blank"
+      rel="noreferrer"
+      title={firm.careers_url}
+      className="inline-flex max-w-full items-center gap-1 truncate text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <span className="truncate">{compact ? "Open job board" : firm.careers_url}</span>
+      <ExternalLink className="h-3 w-3 shrink-0" />
+    </a>
+  );
 }
 
 export function Firms() {
@@ -345,9 +369,7 @@ export function Firms() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate font-medium text-gray-900" title={firm.name}>{firm.name}</div>
-                      <div className="truncate text-xs text-gray-500" title={firm.careers_url || firm.plugin}>
-                        {firm.careers_url || firm.plugin}
-                      </div>
+                      <FirmCareersLink firm={firm} compact />
                     </div>
                     <span className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-medium ${firm.active ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-600"}`}>
                       {firm.active ? "Enabled" : "Disabled"}
@@ -417,9 +439,7 @@ export function Firms() {
                   <TableRow key={firm.key}>
                     <TableCell className="max-w-0">
                       <div className="truncate font-medium" title={firm.name}>{firm.name}</div>
-                      {firm.careers_url ? (
-                        <div className="truncate text-xs text-gray-500" title={firm.careers_url}>{firm.careers_url}</div>
-                      ) : null}
+                      <FirmCareersLink firm={firm} />
                     </TableCell>
                     <TableCell className="max-w-0">
                       <div className="truncate" title={firm.plugin}>{firm.plugin}</div>
