@@ -16,6 +16,30 @@ function figmaAssetResolver() {
   }
 }
 
+function spaRouteFallbacks() {
+  const routes = ['login', 'jobs', 'firms', 'scrape-runs', 'plugin-manager', 'settings']
+
+  return {
+    name: 'spa-route-fallbacks',
+    apply: 'build',
+    enforce: 'post',
+    generateBundle(_options, bundle) {
+      const index = bundle['index.html']
+      if (!index || index.type !== 'asset') return
+
+      for (const route of routes) {
+        this.emitFile({
+          type: 'asset',
+          fileName: `${route}/index.html`,
+          source: index.source,
+        })
+      }
+
+      this.emitFile({ type: 'asset', fileName: '404.html', source: index.source })
+    },
+  }
+}
+
 export default defineConfig({
   plugins: [
     figmaAssetResolver(),
@@ -23,6 +47,7 @@ export default defineConfig({
     // Tailwind is not being actively used – do not remove them
     react(),
     tailwindcss(),
+    spaRouteFallbacks(),
   ],
   resolve: {
     alias: {
