@@ -334,6 +334,10 @@ export function testPlugin(payload: {
 
 export const getJob = (jobId: number) => request<Job>(`/api/jobs/${jobId}`);
 
+export const markJobReviewed = (jobId: number) => request<Job>(`/api/jobs/${jobId}/review`, {
+  method: "POST",
+});
+
 export function listScrapeRuns(page = 1, pageSize = 20) {
   return request<ScrapeRunList>(`/api/scraper/runs?page=${page}&page_size=${pageSize}`);
 }

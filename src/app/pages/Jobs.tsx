@@ -1,6 +1,6 @@
 import {useEffect, useMemo, useState} from "react";
 import type {MouseEvent} from "react";
-import {Download, ExternalLink, Filter, Plus, RotateCcw, Search, Trash2, X} from "lucide-react";
+import {AlertTriangle, CheckCircle, Download, ExternalLink, Filter, Plus, RotateCcw, Search, Trash2, X} from "lucide-react";
 import {toast} from "sonner";
 import {
     Box,
@@ -39,7 +39,7 @@ import {
     Typography,
 } from "@mui/material";
 
-import {exportJobs, getJob, listFirms, listJobs, type Firm, type Job} from "../lib/api";
+import {exportJobs, getJob, listFirms, listJobs, markJobReviewed, type Firm, type Job} from "../lib/api";
 import {formatApiDateTime} from "../lib/dates";
 
 const statusOptions = ["NEW", "LIVE", "UPDATED", "REPOSTED", "NEEDS_REVIEW", "REMOVED"];
@@ -221,6 +221,7 @@ export function Jobs() {
     const [exportFirms, setExportFirms] = useState<string[]>([]);
     const [exportChangedOnly, setExportChangedOnly] = useState(false);
     const [exportFieldFilters, setExportFieldFilters] = useState<ExportFieldFilter[]>([]);
+    const [reviewingJob, setReviewingJob] = useState(false);
 
     const hasDateFilters = Boolean(firstSeenFrom || firstSeenTo || checkedFrom || checkedTo || removedFrom || removedTo);
     const hasFilters = Boolean(search) || status !== "all" || firm !== "all" || changedOnly || hasDateFilters;
@@ -238,6 +239,10 @@ export function Jobs() {
         });
         return lookup;
     }, [firms]);
+    const needsReviewTotal = useMemo(
+        () => firms.reduce((sum, item) => sum + (item.needs_review_jobs || 0), 0),
+        [firms],
+    );
 
     const params = useMemo(() => {
         const q = new URLSearchParams();
@@ -417,6 +422,24 @@ export function Jobs() {
             .catch(() => toast.error("Failed to load full job details"));
     }
 
+    async function handleMarkReviewed() {
+        if (!selectedJob || selectedJob.status !== "NEEDS_REVIEW") return;
+
+        setReviewingJob(true);
+        try {
+            const reviewed = await markJobReviewed(selectedJob.id);
+            setSelectedJob(reviewed);
+            const refreshed = await listJobs(params);
+            setJobs(refreshed.items);
+            setTotal(refreshed.total);
+            toast.success("Job marked as reviewed");
+        } catch {
+            toast.error("Failed to mark job as reviewed");
+        } finally {
+            setReviewingJob(false);
+        }
+    }
+
     function firmCareersUrl(job: Job) {
         if (job.firm_key) {
             const byKey = firmCareersUrlByKey.get(job.firm_key);
@@ -475,9 +498,23 @@ export function Jobs() {
                     <Typography variant="h5" sx={{fontWeight: 700}}>Jobs</Typography>
                     <Typography variant="body2" color="text.secondary">{total} total results</Typography>
                 </Box>
-                <Button variant="outlined" startIcon={<Download size={16}/>} onClick={openExportModal}>
-                    Export
-                </Button>
+                <Stack direction={{xs: "column", sm: "row"}} spacing={1}>
+                    <Button
+                        variant={status === "NEEDS_REVIEW" ? "contained" : "outlined"}
+                        color="warning"
+                        startIcon={<AlertTriangle size={16}/>}
+                        onClick={() => {
+                            setPage(1);
+                            setStatus("NEEDS_REVIEW");
+                            setChangedOnly(false);
+                        }}
+                    >
+                        Needs Review{needsReviewTotal ? ` (${needsReviewTotal})` : ""}
+                    </Button>
+                    <Button variant="outlined" startIcon={<Download size={16}/>} onClick={openExportModal}>
+                        Export
+                    </Button>
+                </Stack>
             </Stack>
 
             <Card variant="outlined" sx={{borderRadius: 2, overflow: "hidden"}}>
@@ -888,6 +925,29 @@ export function Jobs() {
                                         {selectedJob.title || "(Untitled)"}
                                     </Typography>
                                 </Box>
+
+                                {selectedJob.status === "NEEDS_REVIEW" ? (
+                                    <Paper variant="outlined" sx={{p: 1.5, borderColor: "#f59e0b", bgcolor: "#fffbeb"}}>
+                                        <Stack spacing={1.25}>
+                                            <Typography variant="body2" sx={{fontWeight: 700, color: "#92400e"}}>
+                                                This job needs manual review
+                                            </Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                It will stay in Needs Review after future scrapes until it is marked reviewed.
+                                            </Typography>
+                                            <Button
+                                                size="small"
+                                                variant="contained"
+                                                startIcon={<CheckCircle size={16}/>}
+                                                onClick={handleMarkReviewed}
+                                                disabled={reviewingJob}
+                                                sx={{alignSelf: "flex-start", bgcolor: "#111827", "&:hover": {bgcolor: "#1f2937"}}}
+                                            >
+                                                {reviewingJob ? "Marking..." : "Mark as reviewed"}
+                                            </Button>
+                                        </Stack>
+                                    </Paper>
+                                ) : null}
 
                                 <Stack spacing={2}>
                                     <DetailField label="Location" value={selectedJob.location}/>
